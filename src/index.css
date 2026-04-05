@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.nav-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 400px;
+  background: white;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+}

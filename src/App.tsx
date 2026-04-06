@@ -312,16 +312,16 @@ function Home({ session }: { session: any }) {
 function CreateTeam({ session, onCreated }: { session: any, onCreated: () => void }) {
   const t = useLanguage()
   const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState({
-    name: '',
-    club: '',
-    lan: 'Stockholm',
-    kommun: '',
-    age_group: '',
-    gender: '',
-    formation: '',
-    level: '',
-  })
+const [form, setForm] = useState({
+  name: '',
+  club: '',
+  lan: 'Stockholm',
+  kommun: '',
+  age_group: '',
+  gender: '',
+  formation: '',
+  levels: [] as string[],
+})
 
   const stockholmKommuner = [
     'Botkyrka', 'Danderyd', 'Ekerö', 'Haninge', 'Huddinge',
@@ -354,8 +354,17 @@ function CreateTeam({ session, onCreated }: { session: any, onCreated: () => voi
     }))
   }
 
+const toggleLevel = (level: string) => {
+  setForm(prev => ({
+    ...prev,
+    levels: prev.levels.includes(level)
+      ? prev.levels.filter(l => l !== level)
+      : [...prev.levels, level],
+  }))
+}
+
   const handleSave = async () => {
-    if (!form.name || !form.kommun || !form.age_group || !form.gender || !form.formation || !form.level) {
+    if (!form.name || !form.kommun || !form.age_group || !form.gender || !form.formation || form.levels.length === 0) {
       alert('Fyll i alla fält')
       return
     }
@@ -368,7 +377,7 @@ function CreateTeam({ session, onCreated }: { session: any, onCreated: () => voi
       age_group: form.age_group,
       gender: form.gender,
       formation: form.formation,
-      level: form.level,
+      level: form.levels.join(', '),
     })
     if (error) {
       alert(error.message)
@@ -479,18 +488,29 @@ function CreateTeam({ session, onCreated }: { session: any, onCreated: () => voi
         </div>
 
         <div>
-          <label className="text-sm text-gray-500 mb-1 block">Nivå</label>
-          <select
-            value={form.level}
-            onChange={e => update('level', e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
-          >
-            <option value="">Välj nivå</option>
-            {levels.map(l => (
-              <option key={l} value={l}>{l}</option>
-            ))}
-          </select>
-        </div>
+  <label className="text-sm text-gray-500 mb-1 block">Nivå (välj en eller flera)</label>
+  <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px'}}>
+    {levels.map(l => (
+      <button
+        key={l}
+        type="button"
+        onClick={() => toggleLevel(l)}
+        style={{
+          padding: '8px 12px',
+          borderRadius: '12px',
+          border: '1px solid',
+          borderColor: form.levels.includes(l) ? '#22c55e' : '#e5e7eb',
+          backgroundColor: form.levels.includes(l) ? '#22c55e' : 'white',
+          color: form.levels.includes(l) ? 'white' : '#4b5563',
+          cursor: 'pointer',
+          fontSize: '14px',
+        }}
+      >
+        {l}
+      </button>
+    ))}
+  </div>
+</div>
 
         <button
           onClick={handleSave}

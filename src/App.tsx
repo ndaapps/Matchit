@@ -96,12 +96,16 @@ function Home({ session }: { session: any }) {
   const [upcomingMatches, setUpcomingMatches] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState('home')
   const [showCreateTeam, setShowCreateTeam] = useState(false)
+  const [showCreateActivity, setShowCreateActivity] = useState(false)
 
   useEffect(() => {
     fetchTeam()
     fetchNotifications()
-    fetchUpcomingMatches()
   }, [])
+
+  useEffect(() => {
+    if (team) fetchUpcomingMatches()
+  }, [team])
 
   const fetchTeam = async () => {
     const { data } = await supabase
@@ -124,11 +128,10 @@ function Home({ session }: { session: any }) {
   }
 
   const fetchUpcomingMatches = async () => {
-    if (!team) return
     const { data } = await supabase
       .from('activities')
       .select('*')
-      .eq('team_id', team?.id)
+      .eq('team_id', team.id)
       .gte('date', new Date().toISOString().split('T')[0])
       .order('date', { ascending: true })
       .limit(3)
@@ -136,10 +139,7 @@ function Home({ session }: { session: any }) {
   }
 
   const markAsRead = async (id: string) => {
-    await supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('id', id)
+    await supabase.from('notifications').update({ read: true }).eq('id', id)
     setNotifications(prev => prev.filter(n => n.id !== id))
   }
 
@@ -148,24 +148,32 @@ function Home({ session }: { session: any }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
+    <div className="max-w-sm mx-auto min-h-screen flex flex-col relative">
       {showCreateTeam && (
-  <CreateTeam
-    session={session}
-    onCreated={() => {
-      setShowCreateTeam(false)
-      fetchTeam()
-    }}
-  />
-)}
-      <div className="flex-1 overflow-y-auto pb-20">
+        <CreateTeam
+          session={session}
+          onCreated={() => {
+            setShowCreateTeam(false)
+            fetchTeam()
+          }}
+        />
+      )}
+      {showCreateActivity && team && (
+        <CreateActivity
+          session={session}
+          team={team}
+          onCreated={() => {
+            setShowCreateActivity(false)
+            fetchUpcomingMatches()
+          }}
+          onBack={() => setShowCreateActivity(false)}
+        />
+      )}
 
-        {/* Hero */}
+      <div className="flex-1 overflow-y-auto pb-20">
         <div className="bg-green-500 p-5">
           <p className="text-green-100 text-sm">{t.home.greeting}</p>
-          <h1 className="text-white text-xl font-medium mb-3">
-            {session.user.email}
-          </h1>
+          <h1 className="text-white text-xl font-medium mb-3">{session.user.email}</h1>
           {team ? (
             <div className="flex items-center gap-3 bg-white/15 rounded-xl p-3">
               <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-green-600 text-xs font-medium">
@@ -179,26 +187,31 @@ function Home({ session }: { session: any }) {
           ) : (
             <div className="bg-white/15 rounded-xl p-3 flex items-center justify-between">
               <p className="text-white text-sm">{t.home.noTeam}</p>
-              <button onClick={() => setShowCreateTeam(true)}
-               className="bg-white text-green-600 text-xs font-medium px-3 py-1.5 rounded-lg">
-               {t.home.createTeam}
+              <button
+                onClick={() => setShowCreateTeam(true)}
+                className="bg-white text-green-600 text-xs font-medium px-3 py-1.5 rounded-lg"
+              >
+                {t.home.createTeam}
               </button>
             </div>
           )}
         </div>
 
-        {/* Snabbval */}
         <div className="p-4">
           <p className="text-sm font-medium text-gray-700 mb-3">{t.home.quickActions}</p>
           <div className="grid-2">
             {[
-              { label: t.home.postMatch, sub: t.home.postMatchSub, bg: 'bg-green-50', icon: '➕', color: 'text-green-600' },
-              { label: t.home.findMatch, sub: t.home.findMatchSub, bg: 'bg-blue-50', icon: '🔍', color: 'text-blue-600' },
-              { label: t.home.findCup, sub: t.home.findCupSub, bg: 'bg-amber-50', icon: '🏆', color: 'text-amber-600' },
-              { label: t.home.bookReferee, sub: t.home.bookRefereeSub, bg: 'bg-red-50', icon: '👤', color: 'text-red-600' },
+              { label: t.home.postMatch, sub: t.home.postMatchSub, icon: '➕', action: () => setShowCreateActivity(true) },
+              { label: t.home.findMatch, sub: t.home.findMatchSub, icon: '🔍', action: () => {} },
+              { label: t.home.findCup, sub: t.home.findCupSub, icon: '🏆', action: () => {} },
+              { label: t.home.bookReferee, sub: t.home.bookRefereeSub, icon: '👤', action: () => {} },
             ].map((item, i) => (
-              <button key={i} className="bg-white border border-gray-100 rounded-xl p-3 text-left hover:border-gray-200 transition-colors">
-                <div className={`w-8 h-8 ${item.bg} rounded-lg flex items-center justify-center mb-2 text-sm`}>
+              <button
+                key={i}
+                onClick={item.action}
+                className="bg-white border border-gray-100 rounded-xl p-3 text-left hover:border-gray-200 transition-colors"
+              >
+                <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center mb-2 text-sm">
                   {item.icon}
                 </div>
                 <p className="text-sm font-medium text-gray-800">{item.label}</p>
@@ -208,7 +221,6 @@ function Home({ session }: { session: any }) {
           </div>
         </div>
 
-        {/* Notiser */}
         <div className="px-4 mb-4">
           <div className="flex justify-between items-center mb-3">
             <p className="text-sm font-medium text-gray-700">{t.home.notifications}</p>
@@ -237,7 +249,6 @@ function Home({ session }: { session: any }) {
           </div>
         </div>
 
-        {/* Kommande matcher */}
         <div className="px-4 mb-4">
           <div className="flex justify-between items-center mb-3">
             <p className="text-sm font-medium text-gray-700">{t.home.upcomingMatches}</p>
@@ -272,19 +283,13 @@ function Home({ session }: { session: any }) {
           </div>
         </div>
 
-        {/* Logga ut */}
         <div className="px-4">
-          <button
-            onClick={handleSignOut}
-            className="w-full text-sm text-gray-400 py-2"
-          >
+          <button onClick={handleSignOut} className="w-full text-sm text-gray-400 py-2">
             Logga ut
           </button>
         </div>
-
       </div>
 
-      {/* Tab bar */}
       <div className="nav-bar">
         {[
           { id: 'home', label: t.nav.home, icon: '🏠' },
@@ -312,16 +317,16 @@ function Home({ session }: { session: any }) {
 function CreateTeam({ session, onCreated }: { session: any, onCreated: () => void }) {
   const t = useLanguage()
   const [loading, setLoading] = useState(false)
-const [form, setForm] = useState({
-  name: '',
-  club: '',
-  lan: 'Stockholm',
-  kommun: '',
-  age_group: '',
-  gender: '',
-  formation: '',
-  levels: [] as string[],
-})
+  const [form, setForm] = useState({
+    name: '',
+    club: '',
+    lan: 'Stockholm',
+    kommun: '',
+    age_group: '',
+    gender: '',
+    formation: '',
+    levels: [] as string[],
+  })
 
   const stockholmKommuner = [
     'Botkyrka', 'Danderyd', 'Ekerö', 'Haninge', 'Huddinge',
@@ -338,10 +343,8 @@ const [form, setForm] = useState({
     'Blandat': ['P2009','P2010','P2011','P2012','P2013','P2014','P2015','P2016','P2017','P2018',
                 'F2009','F2010','F2011','F2012','F2013','F2014','F2015','F2016','F2017','F2018'],
   }
-  
-  const ageGroups = form.gender ? allAgeGroups[form.gender] : []
-  
 
+  const ageGroups = form.gender ? allAgeGroups[form.gender] : []
   const levels = ['Lätt', 'Lätt+', 'Medel-', 'Medel', 'Medel+', 'Svår', 'Svår+']
   const formations = ['5v5', '7v7', '9v9', '11v11']
   const genders = ['Pojkar', 'Flickor', 'Blandat']
@@ -354,14 +357,14 @@ const [form, setForm] = useState({
     }))
   }
 
-const toggleLevel = (level: string) => {
-  setForm(prev => ({
-    ...prev,
-    levels: prev.levels.includes(level)
-      ? prev.levels.filter(l => l !== level)
-      : [...prev.levels, level],
-  }))
-}
+  const toggleLevel = (level: string) => {
+    setForm(prev => ({
+      ...prev,
+      levels: prev.levels.includes(level)
+        ? prev.levels.filter(l => l !== level)
+        : [...prev.levels, level],
+    }))
+  }
 
   const handleSave = async () => {
     if (!form.name || !form.kommun || !form.age_group || !form.gender || !form.formation || form.levels.length === 0) {
@@ -388,14 +391,13 @@ const toggleLevel = (level: string) => {
   }
 
   return (
-    <div className="max-w-sm mx-auto min-h-screen flex flex-col">
+    <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
       <div className="bg-green-500 p-5">
         <h1 className="text-white text-xl font-medium">Skapa lag</h1>
         <p className="text-green-100 text-sm mt-1">Fyll i uppgifter om ditt lag</p>
       </div>
 
       <div className="flex-1 p-4 space-y-4 overflow-y-auto pb-24">
-
         <div>
           <label className="text-sm text-gray-500 mb-1 block">Lagnamn</label>
           <input
@@ -471,8 +473,6 @@ const toggleLevel = (level: string) => {
           </select>
         </div>
 
-        
-
         <div>
           <label className="text-sm text-gray-500 mb-1 block">Uppställning</label>
           <select
@@ -488,29 +488,29 @@ const toggleLevel = (level: string) => {
         </div>
 
         <div>
-  <label className="text-sm text-gray-500 mb-1 block">Nivå (välj en eller flera)</label>
-  <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px'}}>
-    {levels.map(l => (
-      <button
-        key={l}
-        type="button"
-        onClick={() => toggleLevel(l)}
-        style={{
-          padding: '8px 12px',
-          borderRadius: '12px',
-          border: '1px solid',
-          borderColor: form.levels.includes(l) ? '#22c55e' : '#e5e7eb',
-          backgroundColor: form.levels.includes(l) ? '#22c55e' : 'white',
-          color: form.levels.includes(l) ? 'white' : '#4b5563',
-          cursor: 'pointer',
-          fontSize: '14px',
-        }}
-      >
-        {l}
-      </button>
-    ))}
-  </div>
-</div>
+          <label className="text-sm text-gray-500 mb-1 block">Nivå (välj en eller flera)</label>
+          <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px'}}>
+            {levels.map(l => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => toggleLevel(l)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '12px',
+                  border: '1px solid',
+                  borderColor: form.levels.includes(l) ? '#22c55e' : '#e5e7eb',
+                  backgroundColor: form.levels.includes(l) ? '#22c55e' : 'white',
+                  color: form.levels.includes(l) ? 'white' : '#4b5563',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <button
           onClick={handleSave}
@@ -519,6 +519,342 @@ const toggleLevel = (level: string) => {
         >
           {loading ? t.common.loading : t.common.save}
         </button>
+      </div>
+    </div>
+  )
+}
+
+function CreateActivity({ session, team, onCreated, onBack }: {
+  session: any,
+  team: any,
+  onCreated: () => void,
+  onBack: () => void
+}) {
+  const t = useLanguage()
+  const [loading, setLoading] = useState(false)
+  const [config, setConfig] = useState<Record<string, any[]>>({})
+  const [form, setForm] = useState({
+    type: '',
+    hour: '10',
+    minute: '00',
+    date: '',
+    location: '',
+    formation: '',
+    duration: '',
+    customPeriods: '2',
+    customMinutes: '20',
+    levels: [] as string[],
+    surface: '',
+    referee_available: false,
+    opponent_referee: false,
+    parent_referee_ok: false,
+    cost: '',
+  })
+
+  const hours = Array.from({length: 17}, (_, i) => String(i + 6).padStart(2, '0'))
+  const minutes = ['00', '15', '30', '45']
+
+  useEffect(() => {
+    fetchConfig()
+  }, [])
+
+  const fetchConfig = async () => {
+    const { data } = await supabase
+      .from('config')
+      .select('*')
+      .eq('active', true)
+      .order('sort_order')
+
+    if (data) {
+      const grouped = data.reduce((acc: Record<string, any[]>, item) => {
+        if (!acc[item.category]) acc[item.category] = []
+        acc[item.category].push(item)
+        return acc
+      }, {})
+      setConfig(grouped)
+    }
+  }
+
+  const update = (key: string, value: any) => {
+    setForm(prev => ({ ...prev, [key]: value }))
+  }
+
+  const toggleLevel = (level: string) => {
+    setForm(prev => ({
+      ...prev,
+      levels: prev.levels.includes(level)
+        ? prev.levels.filter(l => l !== level)
+        : [...prev.levels, level],
+    }))
+  }
+
+  const handleSave = async () => {
+    if (!form.type || !form.date || !form.location || !form.formation) {
+      alert('Fyll i alla obligatoriska fält')
+      return
+    }
+    const time = `${form.hour}:${form.minute}`
+    const duration = form.duration === 'custom'
+      ? `${form.customPeriods}×${form.customMinutes} min`
+      : form.duration
+
+    const selectedType = (config.activity_type || []).find((c: any) => c.value === form.type)
+    const typeLabel = selectedType ? selectedType.label : form.type
+
+    setLoading(true)
+    const { error } = await supabase.from('activities').insert({
+      team_id: team.id,
+      type: typeLabel,
+      date: form.date,
+      time,
+      location: form.location,
+      formation: form.formation,
+      duration,
+      level: form.levels.join(', '),
+      surface: form.surface,
+      gender: team.gender,
+      age_group: team.age_group,
+      referee_available: form.referee_available,
+      referee_needed: form.opponent_referee,
+      cost: form.cost ? parseInt(form.cost) : 0,
+      status: 'open',
+    })
+    if (error) {
+      alert(error.message)
+    } else {
+      onCreated()
+    }
+    setLoading(false)
+  }
+
+  const levels = (config.level || []).map((c: any) => c.label)
+
+  return (
+    <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
+      <div className="bg-green-500 p-5 flex items-center gap-3">
+        <button onClick={onBack} className="text-white text-xl">←</button>
+        <div>
+          <h1 className="text-white text-xl font-medium">Lägg upp aktivitet</h1>
+          <p className="text-green-100 text-sm">{team?.name}</p>
+        </div>
+      </div>
+
+      <div className="flex-1 p-4 space-y-4 overflow-y-auto pb-24">
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Typ av aktivitet *</label>
+          <select
+            value={form.type}
+            onChange={e => update('type', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Välj typ</option>
+            {(config.activity_type || []).map((c: any) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Datum *</label>
+          <input
+            type="date"
+            value={form.date}
+            onChange={e => update('date', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400"
+          />
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Tid *</label>
+          <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+            <select
+              value={form.hour}
+              onChange={e => update('hour', e.target.value)}
+              className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+            >
+              {hours.map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="text-gray-400 font-medium">:</span>
+            <select
+              value={form.minute}
+              onChange={e => update('minute', e.target.value)}
+              className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+            >
+              {minutes.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Plats *</label>
+          <input
+            type="text"
+            placeholder="t.ex. Grimsta IP, Stockholm"
+            value={form.location}
+            onChange={e => update('location', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400"
+          />
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Uppställning *</label>
+          <select
+            value={form.formation}
+            onChange={e => update('formation', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Välj uppställning</option>
+            {(config.formation || []).map((c: any) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Matchlängd</label>
+          <select
+            value={form.duration}
+            onChange={e => update('duration', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Välj matchlängd</option>
+            {(config.duration || []).map((c: any) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+            <option value="custom">Anpassat</option>
+          </select>
+          {form.duration === 'custom' && (
+            <div style={{display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center'}}>
+              <select
+                value={form.customPeriods}
+                onChange={e => update('customPeriods', e.target.value)}
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+              >
+                {['1','2','3','4'].map(p => (
+                  <option key={p} value={p}>{p} perioder</option>
+                ))}
+              </select>
+              <span className="text-gray-400 text-sm">×</span>
+              <select
+                value={form.customMinutes}
+                onChange={e => update('customMinutes', e.target.value)}
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+              >
+                {['10','15','20','25','30','35','40','45'].map(m => (
+                  <option key={m} value={m}>{m} min</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Underlag</label>
+          <select
+            value={form.surface}
+            onChange={e => update('surface', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Välj underlag</option>
+            {(config.surface || []).map((c: any) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Nivå (välj en eller flera)</label>
+          <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px'}}>
+            {levels.map((l: string) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => toggleLevel(l)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '12px',
+                  border: '1px solid',
+                  borderColor: form.levels.includes(l) ? '#22c55e' : '#e5e7eb',
+                  backgroundColor: form.levels.includes(l) ? '#22c55e' : 'white',
+                  color: form.levels.includes(l) ? 'white' : '#4b5563',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Eventuell kostnad (kr/lag)</label>
+          <input
+            type="number"
+            placeholder="Lämna tomt om gratis"
+            value={form.cost}
+            onChange={e => update('cost', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400"
+          />
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-2 block">Domare</label>
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.referee_available}
+                onChange={e => update('referee_available', e.target.checked)}
+                className="w-4 h-4 accent-green-500"
+              />
+              <span className="text-sm text-gray-700">Domare finns</span>
+            </label>
+            <div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.opponent_referee}
+                  onChange={e => update('opponent_referee', e.target.checked)}
+                  className="w-4 h-4 accent-green-500"
+                />
+                <span className="text-sm text-gray-700">Motståndare fixar domare</span>
+              </label>
+              {form.opponent_referee && (
+                <label className="flex items-center gap-3 cursor-pointer mt-2 ml-7">
+                  <input
+                    type="checkbox"
+                    checked={form.parent_referee_ok}
+                    onChange={e => update('parent_referee_ok', e.target.checked)}
+                    className="w-4 h-4 accent-green-500"
+                  />
+                  <span className="text-sm text-gray-400">Förälder/ledare funkar</span>
+                </label>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{display: 'flex', gap: '8px'}}>
+          <button
+            onClick={onBack}
+            className="flex-1 border border-gray-200 text-gray-600 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            Avbryt
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={loading}
+            className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors"
+          >
+            {loading ? t.common.loading : 'Publicera'}
+          </button>
+        </div>
 
       </div>
     </div>

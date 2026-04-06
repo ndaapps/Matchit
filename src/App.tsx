@@ -97,6 +97,7 @@ function Home({ session }: { session: any }) {
   const [activeTab, setActiveTab] = useState('home')
   const [showCreateTeam, setShowCreateTeam] = useState(false)
   const [showCreateActivity, setShowCreateActivity] = useState(false)
+  const [showFindMatch, setShowFindMatch] = useState(false)
 
   useEffect(() => {
     fetchTeam()
@@ -169,6 +170,12 @@ function Home({ session }: { session: any }) {
           onBack={() => setShowCreateActivity(false)}
         />
       )}
+      {showFindMatch && team && (
+        <FindMatch
+          team={team}
+          onBack={() => setShowFindMatch(false)}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto pb-20">
         <div className="bg-green-500 p-5">
@@ -202,7 +209,7 @@ function Home({ session }: { session: any }) {
           <div className="grid-2">
             {[
               { label: t.home.postMatch, sub: t.home.postMatchSub, icon: '➕', action: () => setShowCreateActivity(true) },
-              { label: t.home.findMatch, sub: t.home.findMatchSub, icon: '🔍', action: () => {} },
+              { label: t.home.findMatch, sub: t.home.findMatchSub, icon: '🔍', action: () => setShowFindMatch(true) },
               { label: t.home.findCup, sub: t.home.findCupSub, icon: '🏆', action: () => {} },
               { label: t.home.bookReferee, sub: t.home.bookRefereeSub, icon: '👤', action: () => {} },
             ].map((item, i) => (
@@ -293,14 +300,17 @@ function Home({ session }: { session: any }) {
       <div className="nav-bar">
         {[
           { id: 'home', label: t.nav.home, icon: '🏠' },
-          { id: 'search', label: t.nav.search, icon: '🔍' },
-          { id: 'post', label: t.nav.post, icon: '➕' },
+          { id: 'search', label: t.nav.search, icon: '🔍', action: () => setShowFindMatch(true) },
+          { id: 'post', label: t.nav.post, icon: '➕', action: () => setShowCreateActivity(true) },
           { id: 'notifications', label: t.nav.notifications, icon: '🔔' },
           { id: 'profile', label: t.nav.profile, icon: '👤' },
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              setActiveTab(tab.id)
+              if ((tab as any).action) (tab as any).action()
+            }}
             className={`flex-1 flex flex-col items-center py-3 gap-1 text-xs transition-colors ${
               activeTab === tab.id ? 'text-green-500' : 'text-gray-400'
             }`}
@@ -539,6 +549,7 @@ function CreateActivity({ session, team, onCreated, onBack }: {
     minute: '00',
     date: '',
     location: '',
+    kommun: '',
     formation: '',
     duration: '',
     customPeriods: '2',
@@ -553,6 +564,15 @@ function CreateActivity({ session, team, onCreated, onBack }: {
 
   const hours = Array.from({length: 17}, (_, i) => String(i + 6).padStart(2, '0'))
   const minutes = ['00', '15', '30', '45']
+
+  const stockholmKommuner = [
+    'Botkyrka', 'Danderyd', 'Ekerö', 'Haninge', 'Huddinge',
+    'Järfälla', 'Lidingö', 'Nacka', 'Norrtälje', 'Nykvarn',
+    'Nynäshamn', 'Salem', 'Sigtuna', 'Sollentuna', 'Solna',
+    'Stockholm', 'Sundbyberg', 'Södertälje', 'Tyresö', 'Täby',
+    'Upplands-Bro', 'Upplands Väsby', 'Vallentuna', 'Vaxholm',
+    'Värmdö', 'Österåker'
+  ]
 
   useEffect(() => {
     fetchConfig()
@@ -589,7 +609,7 @@ function CreateActivity({ session, team, onCreated, onBack }: {
   }
 
   const handleSave = async () => {
-    if (!form.type || !form.date || !form.location || !form.formation) {
+    if (!form.type || !form.date || !form.location || !form.formation || !form.kommun) {
       alert('Fyll i alla obligatoriska fält')
       return
     }
@@ -608,6 +628,7 @@ function CreateActivity({ session, team, onCreated, onBack }: {
       date: form.date,
       time,
       location: form.location,
+      kommun: form.kommun,
       formation: form.formation,
       duration,
       level: form.levels.join(', '),
@@ -694,11 +715,25 @@ function CreateActivity({ session, team, onCreated, onBack }: {
           <label className="text-sm text-gray-500 mb-1 block">Plats *</label>
           <input
             type="text"
-            placeholder="t.ex. Grimsta IP, Stockholm"
+            placeholder="t.ex. Grimsta IP"
             value={form.location}
             onChange={e => update('location', e.target.value)}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400"
           />
+        </div>
+
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">Kommun *</label>
+          <select
+            value={form.kommun}
+            onChange={e => update('kommun', e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Välj kommun</option>
+            {stockholmKommuner.map(k => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -855,7 +890,219 @@ function CreateActivity({ session, team, onCreated, onBack }: {
             {loading ? t.common.loading : 'Publicera'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
 
+function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
+  const [activities, setActivities] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [config, setConfig] = useState<Record<string, any[]>>({})
+ const [filters, setFilters] = useState({
+  type: '',
+  formation: '',
+  level: '',
+  kommun: '',
+  dateFrom: '',
+  dateTo: '',
+})
+
+  const stockholmKommuner = [
+    'Botkyrka', 'Danderyd', 'Ekerö', 'Haninge', 'Huddinge',
+    'Järfälla', 'Lidingö', 'Nacka', 'Norrtälje', 'Nykvarn',
+    'Nynäshamn', 'Salem', 'Sigtuna', 'Sollentuna', 'Solna',
+    'Stockholm', 'Sundbyberg', 'Södertälje', 'Tyresö', 'Täby',
+    'Upplands-Bro', 'Upplands Väsby', 'Vallentuna', 'Vaxholm',
+    'Värmdö', 'Österåker'
+  ]
+
+  useEffect(() => {
+    fetchConfig()
+    fetchActivities()
+  }, [])
+
+  useEffect(() => {
+    fetchActivities()
+  }, [filters])
+
+  const fetchConfig = async () => {
+    const { data } = await supabase
+      .from('config')
+      .select('*')
+      .eq('active', true)
+      .order('sort_order')
+
+    if (data) {
+      const grouped = data.reduce((acc: Record<string, any[]>, item) => {
+        if (!acc[item.category]) acc[item.category] = []
+        acc[item.category].push(item)
+        return acc
+      }, {})
+      setConfig(grouped)
+    }
+  }
+
+  const fetchActivities = async () => {
+    setLoading(true)
+    let query = supabase
+      .from('activities')
+      .select('*, teams(name, club)')
+      .eq('status', 'open')
+      // TODO: lägg tillbaka detta när vi testar med flera användare
+      // .neq('team_id', team.id)
+      .gte('date', filters.dateFrom || new Date().toISOString().split('T')[0])
+      .lte('date', filters.dateTo || '2099-12-31')
+      .order('date', { ascending: true })
+
+    if (filters.type) query = query.eq('type', filters.type)
+    if (filters.formation) query = query.eq('formation', filters.formation)
+    if (filters.level) query = query.ilike('level', `%${filters.level}%`)
+    if (filters.kommun) query = query.eq('kommun', filters.kommun)
+
+    const { data } = await query
+    setActivities(data || [])
+    setLoading(false)
+  }
+
+  const updateFilter = (key: string, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleInterest = async (activity: any) => {
+    alert(`Intresseanmälan skickad till ${activity.teams?.name}! Vi meddelar dem.`)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
+      <div className="bg-green-500 p-5 flex items-center gap-3">
+        <button onClick={onBack} className="text-white text-xl">←</button>
+        <div>
+          <h1 className="text-white text-xl font-medium">Hitta match</h1>
+          <p className="text-green-100 text-sm">{activities.length} aktiviteter</p>
+        </div>
+      </div>
+
+      {/* Filter */}
+      <div className="bg-white border-b border-gray-100 p-3 space-y-2">
+        <div className="grid-2">
+          <select
+            value={filters.type}
+            onChange={e => updateFilter('type', e.target.value)}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Alla typer</option>
+            {(config.activity_type || []).map((c: any) => (
+              <option key={c.value} value={c.label}>{c.label}</option>
+            ))}
+          </select>
+          <select
+            value={filters.formation}
+            onChange={e => updateFilter('formation', e.target.value)}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Alla uppställningar</option>
+            {(config.formation || []).map((c: any) => (
+              <option key={c.value} value={c.label}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid-2">
+          <select
+            value={filters.level}
+            onChange={e => updateFilter('level', e.target.value)}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Alla nivåer</option>
+            {(config.level || []).map((c: any) => (
+              <option key={c.value} value={c.label}>{c.label}</option>
+            ))}
+          </select>
+          <select
+            value={filters.kommun}
+            onChange={e => updateFilter('kommun', e.target.value)}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"
+          >
+            <option value="">Alla kommuner</option>
+            {stockholmKommuner.map(k => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+<div className="grid-2">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Från datum</label>
+            <input
+              type="date"
+              value={filters.dateFrom}
+              onChange={e => updateFilter('dateFrom', e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Till datum</label>
+            <input
+              type="date"
+              value={filters.dateTo}
+              onChange={e => updateFilter('dateTo', e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400"
+            />
+          </div>
+        </div>
+      {/* Lista */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {loading ? (
+          <p className="text-sm text-gray-400 text-center py-8">Laddar...</p>
+        ) : activities.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-2xl mb-2">🔍</p>
+            <p className="text-sm font-medium text-gray-600">Inga aktiviteter hittades</p>
+            <p className="text-xs text-gray-400 mt-1">Prova att ändra filtren</p>
+          </div>
+        ) : (
+          activities.map(a => (
+            <div key={a.id} className="bg-white rounded-xl border border-gray-100 p-4">
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{a.type}</p>
+                  <p className="text-xs text-gray-400">{a.teams?.name}</p>
+                </div>
+                <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-600 font-medium">
+                  Öppen
+                </span>
+              </div>
+              <div className="space-y-1 mb-3">
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>📅</span>
+                  <span>{new Date(a.date).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' })} · {a.time}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>📍</span>
+                  <span>{a.location}{a.kommun ? `, ${a.kommun}` : ''}</span>
+                </div>
+                <div className="flex gap-3 text-xs text-gray-500">
+                  {a.formation && <span>⚽ {a.formation}</span>}
+                  {a.level && <span>📊 {a.level}</span>}
+                  {a.duration && <span>⏱ {a.duration}</span>}
+                </div>
+                {a.cost > 0 && (
+                  <div className="text-xs text-amber-600">💰 {a.cost} kr/lag</div>
+                )}
+                <div className="text-xs text-gray-500">
+                  {a.referee_available && <span>✅ Domare finns</span>}
+                  {a.referee_needed && <span>🙋 Motståndare fixar domare</span>}
+                </div>
+              </div>
+              <button
+                onClick={() => handleInterest(a)}
+                className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors"
+              >
+                Anmäl intresse
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )

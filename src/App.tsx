@@ -275,11 +275,10 @@ const fetchConfirmedMatches = async () => {
 
 function MatchCard({ match, team, onBack, onCancelled }: { match: any, team: any, onBack: () => void, onCancelled: () => void }) {
   const [showCancel, setShowCancel] = useState(false)
-  const activity = match.activities
   const isOrganizer = match.role === 'organizer'
-  const opponent = isOrganizer ? match.teams?.name : activity?.teams?.name
-  const contactMethod = activity?.contact_method || match.activities?.contact_method
-  const hoursUntil = Math.floor((new Date(activity?.date).getTime() - Date.now()) / 3600000)
+  const opponent = match.opponent_name
+  const contactMethod = match.contact_method
+  const hoursUntil = Math.floor((new Date(match.date).getTime() - Date.now()) / 3600000)
   const isShortNotice = hoursUntil < 48
 
   if (showCancel) {
@@ -302,19 +301,19 @@ function MatchCard({ match, team, onBack, onCancelled }: { match: any, team: any
           <p className="text-sm font-medium text-gray-700">Matchinfo</p>
           <div className="text-xs text-gray-500 space-y-1.5">
             <p>🏆 Motståndare: <strong className="text-gray-700">{opponent}</strong></p>
-            <p>📅 {new Date(activity?.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {activity?.time?.substring(0, 5)}</p>
-            <p>📍 {activity?.location}{activity?.kommun ? `, ${activity?.kommun}` : ''}</p>
-            {activity?.formation && <p>⚽ {activity?.formation}</p>}
-            {activity?.level && <p>📊 {activity?.level}</p>}
-            {activity?.duration && <p>⏱ {activity?.duration}</p>}
-            {activity?.surface && <p>🌱 {activity?.surface}</p>}
+            <p>📅 {new Date(match.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {match.time?.substring(0, 5)}</p>
+            <p>📍 {match.location}{match.kommun ? `, ${match.kommun}` : ''}</p>
+            {match.formation && <p>⚽ {match.formation}</p>}
+            {match.level && <p>📊 {match.level}</p>}
+            {match.duration && <p>⏱ {match.duration}</p>}
+            {match.surface && <p>🌱 {match.surface}</p>}
           </div>
         </div>
 
-        {!isOrganizer && activity && (
+        {!isOrganizer && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-gray-700">Kontakta arrangören</p>
-            <ContactButton activity={activity} teamName={team.name} />
+            <ContactButton activity={match} teamName={team.name} />
           </div>
         )}
 

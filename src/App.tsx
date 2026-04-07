@@ -97,30 +97,11 @@ function Home({ session }: { session: any }) {
     setUnreadCount(data?.length || 0)
   }
 
-  const fetchConfirmedMatches = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    // Matches where I am the requester
-    const { data: asRequester } = await supabase.from('bookings')
-      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
-      .eq('team_id', team.id).eq('status', 'confirmed')
-      .gte('activities.date', today)
-    // Matches where I am the organizer
-    const { data: myActivities } = await supabase.from('activities').select('id').eq('team_id', team.id)
-    const actIds = myActivities?.map((a: any) => a.id) || []
-    let asOrganizer: any[] = []
-    if (actIds.length > 0) {
-      const { data } = await supabase.from('bookings')
-        .select('*, activities(*, teams(name)), teams(name, contact_method, contact_phone, contact_email)')
-        .in('activity_id', actIds).eq('status', 'confirmed')
-        .gte('activities.date', today)
-      asOrganizer = data || []
-    }
-    const all = [
-      ...(asRequester || []).map((b: any) => ({ ...b, role: 'requester' })),
-      ...asOrganizer.map((b: any) => ({ ...b, role: 'organizer' }))
-    ].sort((a, b) => (a.activities?.date || '') > (b.activities?.date || '') ? 1 : -1)
-    setConfirmedMatches(all)
-  }
+const fetchConfirmedMatches = async () => {
+  if (!team) return
+  const { data } = await supabase.rpc('get_confirmed_matches', { p_team_id: team.id })
+  setConfirmedMatches(data || [])
+}
 
   const handleNotificationClick = async (n: any) => {
     await supabase.from('notifications').update({ read: true }).eq('id', n.id)
@@ -247,23 +228,21 @@ function Home({ session }: { session: any }) {
               <p className="text-sm text-gray-400 p-4 text-center">Inga kommande bekräftade matcher</p>
             ) : (
               confirmedMatches.slice(0, 4).map(m => {
-                const activity = m.activities
-                const isOrganizer = m.role === 'organizer'
-                const opponent = isOrganizer ? m.teams?.name : activity?.teams?.name
-                return (
-                  <div key={m.id} onClick={() => setSelectedMatch(m)}
-                    className="flex items-center gap-3 p-3 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50">
-                    <div className="text-center min-w-8">
-                      <p className="text-lg font-medium text-green-500 leading-none">{new Date(activity?.date).getDate()}</p>
-                      <p className="text-xs text-gray-400 uppercase">{new Date(activity?.date).toLocaleDateString('sv-SE', { month: 'short' })}</p>
-                    </div>
-                    <div className="w-px h-8 bg-gray-100" />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-800">vs {opponent}</p>
-                      <p className="text-xs text-gray-400">{activity?.location} · {activity?.time?.substring(0, 5)}</p>
-                    </div>
-                    <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-600 font-medium">Bokad</span>
-                  </div>
+  const opponent = m.opponent_name
+  return (
+    <div key={m.id} onClick={() => setSelectedMatch(m)}
+      className="flex items-center gap-3 p-3 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50">
+      <div className="text-center min-w-8">
+        <p className="text-lg font-medium text-green-500 leading-none">{new Date(m.date).getDate()}</p>
+        <p className="text-xs text-gray-400 uppercase">{new Date(m.date).toLocaleDateString('sv-SE', { month: 'short' })}</p>
+      </div>
+      <div className="w-px h-8 bg-gray-100" />
+      <div className="flex-1">
+        <p className="text-sm font-medium text-gray-800">vs {opponent}</p>
+        <p className="text-xs text-gray-400">{m.location} · {m.time?.substring(0, 5)}</p>
+      </div>
+      <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-600 font-medium">Bokad</span>
+    </div>
                 )
               })
             )}
@@ -491,8 +470,8 @@ function CalendarView({ matches, onBack, onMatchClick }: { matches: any[], onBac
   const startPad = (firstDay.getDay() + 6) % 7 // Monday = 0
   const daysInMonth = lastDay.getDate()
 
-  const matchDates = matches.reduce((acc: Record<string, any[]>, m) => {
-    const date = m.activities?.date
+ const matchDates = matches.reduce((acc: Record<string, any[]>, m) => {
+  const date = m.date
     if (date) {
       const key = date
       if (!acc[key]) acc[key] = []
@@ -550,9 +529,7 @@ function CalendarView({ matches, onBack, onMatchClick }: { matches: any[], onBac
           .filter(([date]) => date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
           .sort(([a], [b]) => a > b ? 1 : -1)
           .map(([date, ms]) => (ms as any[]).map((m, i) => {
-            const activity = m.activities
-            const isOrganizer = m.role === 'organizer'
-            const opponent = isOrganizer ? m.teams?.name : activity?.teams?.name
+            const opponent = m.opponent_name
             return (
               <div key={`${date}-${i}`} onClick={() => onMatchClick(m)}
                 className="bg-white rounded-xl border border-gray-100 p-3 cursor-pointer hover:border-green-200 flex items-center gap-3">
@@ -563,7 +540,7 @@ function CalendarView({ matches, onBack, onMatchClick }: { matches: any[], onBac
                 <div className="w-px h-8 bg-gray-100" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-gray-800">vs {opponent}</p>
-                  <p className="text-xs text-gray-400">{activity?.location} · {activity?.time?.substring(0, 5)}</p>
+                  <p className="text-xs text-gray-400">{m.location} · {m.time?.substring(0, 5)}</p>
                 </div>
               </div>
             )
@@ -622,41 +599,34 @@ function MyMatches({ team, initialTab, onBack }: { team: any, initialTab: string
 
   useEffect(() => { fetchAll() }, [])
 
-  const fetchAll = async () => {
-    setLoading(true)
-    // My activities (ads)
-    const { data: acts } = await supabase.from('activities')
-      .select('*, bookings(id, status, message, rejection_reason, teams(name, age_group))')
-      .eq('team_id', team.id).order('date', { ascending: true })
-    setMyActivities(acts || [])
+const fetchAll = async () => {
+  setLoading(true)
 
-    // My pending bookings (sent interest, waiting)
-    const { data: books } = await supabase.from('bookings')
-      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
-      .eq('team_id', team.id).eq('status', 'pending')
-      .order('created_at', { ascending: false })
-    setMyBookings(books || [])
+  // Mina annonser
+  const { data: acts } = await supabase
+    .from('activities')
+    .select('*, bookings(id, status, message, rejection_reason, teams(name, age_group))')
+    .eq('team_id', team.id)
+    .order('date', { ascending: true })
+  setMyActivities(acts || [])
 
-    // All confirmed matches
-    const { data: asReq } = await supabase.from('bookings')
-      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
-      .eq('team_id', team.id).eq('status', 'confirmed')
-    const { data: myActs } = await supabase.from('activities').select('id').eq('team_id', team.id)
-    const actIds = myActs?.map((a: any) => a.id) || []
-    let asOrg: any[] = []
-    if (actIds.length > 0) {
-      const { data } = await supabase.from('bookings')
-        .select('*, activities(*, teams(name)), teams(name, contact_method, contact_phone, contact_email)')
-        .in('activity_id', actIds).eq('status', 'confirmed')
-      asOrg = (data || []).map((b: any) => ({ ...b, role: 'organizer' }))
-    }
-    const allConfirmed = [
-      ...(asReq || []).map((b: any) => ({ ...b, role: 'requester' })),
-      ...asOrg,
-    ].sort((a, b) => (a.activities?.date || '') > (b.activities?.date || '') ? 1 : -1)
-    setConfirmedMatches(allConfirmed)
-    setLoading(false)
-  }
+  // Mina pending anmälningar
+  const { data: books } = await supabase
+    .from('bookings')
+    .select('*, activities(type, date, time, location, kommun, formation, level)')
+    .eq('team_id', team.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  setMyBookings(books || [])
+
+  // Bekräftade via RPC
+  const { data: confirmed } = await supabase
+    .rpc('get_confirmed_matches', { p_team_id: team.id })
+ console.log('confirmed raw:', confirmed)
+setConfirmedMatches(confirmed || [])
+
+  setLoading(false)
+}
 
   const handleDeleteActivity = async (id: string) => {
     if (!confirm('Är du säker?')) return
@@ -668,9 +638,8 @@ function MyMatches({ team, initialTab, onBack }: { team: any, initialTab: string
 
   const upcomingActs = myActivities.filter(a => a.date >= today)
   const pastActs = myActivities.filter(a => a.date < today)
-  const upcomingConfirmed = confirmedMatches.filter(m => (m.activities?.date || '') >= today)
-  const pastConfirmed = confirmedMatches.filter(m => (m.activities?.date || '') < today)
-
+  const upcomingConfirmed = confirmedMatches.filter(m => (m.date || '') >= today)
+const pastConfirmed = confirmedMatches.filter(m => (m.date || '') < today)
   if (selectedMatch) {
     return <MatchCard match={selectedMatch} team={team}
       onBack={() => { setSelectedMatch(null); fetchAll() }}
@@ -805,16 +774,15 @@ function MyMatches({ team, initialTab, onBack }: { team: any, initialTab: string
               </>
             )}
 
-            {/* BEKRÄFTADE */}
+{/* BEKRÄFTADE */}
             {activeTab === 'confirmed' && (
               <>
                 {upcomingConfirmed.length === 0 && pastConfirmed.length === 0 && (
                   <div className="text-center py-12"><p className="text-2xl mb-2">✅</p><p className="text-sm text-gray-500">Inga bekräftade matcher</p></div>
                 )}
                 {upcomingConfirmed.map(m => {
-                  const activity = m.activities
                   const isOrganizer = m.role === 'organizer'
-                  const opponent = isOrganizer ? m.teams?.name : activity?.teams?.name
+                  const opponent = m.opponent_name
                   const isExpanded = expandedId === m.id
                   return (
                     <div key={m.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -822,7 +790,7 @@ function MyMatches({ team, initialTab, onBack }: { team: any, initialTab: string
                         className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50">
                         <div>
                           <p className="text-sm font-medium text-gray-700">vs {opponent}</p>
-                          <p className="text-xs text-gray-400">{activity?.type} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} · {activity?.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-400">{m.type} · {new Date(m.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} · {m.time?.substring(0, 5)}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-600">Bokad</span>
@@ -831,11 +799,12 @@ function MyMatches({ team, initialTab, onBack }: { team: any, initialTab: string
                       </div>
                       {isExpanded && (
                         <div className="px-3 pb-3 space-y-2 border-t border-gray-50 pt-2">
-                          <p className="text-xs text-gray-500">📅 {new Date(activity?.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {activity?.time?.substring(0, 5)}</p>
-                          <p className="text-xs text-gray-500">📍 {activity?.location}{activity?.kommun ? `, ${activity?.kommun}` : ''}</p>
-                          {activity?.formation && <p className="text-xs text-gray-500">⚽ {activity?.formation}</p>}
-                          {!isOrganizer && <ContactButton activity={activity} teamName={team.name} />}
-                          {isOrganizer && <p className="text-xs text-gray-400">Motståndaren kontaktar dig via {activity?.contact_method === 'whatsapp' ? 'WhatsApp' : activity?.contact_method}</p>}
+                          <p className="text-xs text-gray-500">📅 {new Date(m.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {m.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-500">📍 {m.location}{m.kommun ? `, ${m.kommun}` : ''}</p>
+                          {m.formation && <p className="text-xs text-gray-500">⚽ {m.formation}</p>}
+                          {m.level && <p className="text-xs text-gray-500">📊 {m.level}</p>}
+                          {!isOrganizer && <ContactButton activity={m} teamName={team.name} />}
+                          {isOrganizer && <p className="text-xs text-gray-400">Motståndaren kontaktar dig via {m.contact_method === 'whatsapp' ? 'WhatsApp' : m.contact_method}</p>}
                           <button onClick={() => setSelectedMatch(m)}
                             className="w-full border border-red-200 text-red-600 py-2 rounded-xl text-xs font-medium mt-1">
                             Avboka match
@@ -852,13 +821,11 @@ function MyMatches({ team, initialTab, onBack }: { team: any, initialTab: string
                       {showOldConfirmed ? '▲' : '▼'} Tidigare bekräftade ({pastConfirmed.length})
                     </button>
                     {showOldConfirmed && pastConfirmed.map(m => {
-                      const activity = m.activities
-                      const isOrganizer = m.role === 'organizer'
-                      const opponent = isOrganizer ? m.teams?.name : activity?.teams?.name
+                      const opponent = m.opponent_name
                       return (
                         <div key={m.id} className="bg-white rounded-xl border border-gray-100 p-3 opacity-60">
                           <p className="text-sm text-gray-700">vs {opponent}</p>
-                          <p className="text-xs text-gray-400">{new Date(activity?.date).toLocaleDateString('sv-SE')} · {activity?.location}</p>
+                          <p className="text-xs text-gray-400">{new Date(m.date).toLocaleDateString('sv-SE')} · {m.location}</p>
                         </div>
                       )
                     })}

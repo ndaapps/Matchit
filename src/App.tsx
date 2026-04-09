@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import { useLanguage } from './useLanguage'
 
@@ -80,6 +80,7 @@ function Home({ session }: { session: any }) {
   const [showCalendar, setShowCalendar] = useState(false)
   const [selectedMatch, setSelectedMatch] = useState<any>(null)
   const [showBookingConfirmed, setShowBookingConfirmed] = useState<any>(null)
+  const [showProfile, setShowProfile] = useState(false)
 
   useEffect(() => { fetchTeam(); fetchNotifications() }, [])
   useEffect(() => { if (team) fetchConfirmedMatches() }, [team])
@@ -100,7 +101,6 @@ function Home({ session }: { session: any }) {
   const fetchConfirmedMatches = async () => {
     if (!team) return
     const today = new Date().toISOString().split('T')[0]
- 
     const { data } = await supabase.rpc('get_confirmed_matches', { p_team_id: team.id })
     const upcoming = (data || []).filter((m: any) => m.date >= today)
     setConfirmedMatches(upcoming)
@@ -141,9 +141,9 @@ function Home({ session }: { session: any }) {
           onBack={() => { setShowIncoming(false); fetchNotifications(); fetchConfirmedMatches() }} />
       )}
       {showMyMatches && team && (
-  <MyMatches key={showMyMatches} team={team} session={session} initialTab={showMyMatches}
-    onBack={() => { setShowMyMatches(null); fetchConfirmedMatches() }} />
-)}
+        <MyMatches team={team} session={session} initialTab={showMyMatches}
+          onBack={() => { setShowMyMatches(null); fetchConfirmedMatches() }} />
+      )}
       {showCalendar && team && (
         <CalendarView matches={confirmedMatches}
           onBack={() => setShowCalendar(false)}
@@ -257,13 +257,17 @@ function Home({ session }: { session: any }) {
         </div>
       </div>
 
+      {showProfile && (
+        <ProfileView session={session} onBack={() => setShowProfile(false)} />
+      )}
+
       <div className="nav-bar">
         {[
           { id: 'home', label: t.nav.home, icon: '🏠', action: () => {} },
           { id: 'search', label: t.nav.search, icon: '🔍', action: () => setShowFindMatch(true) },
           { id: 'post', label: t.nav.post, icon: '➕', action: () => setShowCreateActivity(true) },
           { id: 'matches', label: 'Matcher', icon: '📋', action: () => setShowMyMatches('mine') },
-          { id: 'profile', label: t.nav.profile, icon: '👤', action: () => {} },
+          { id: 'profile', label: t.nav.profile, icon: '👤', action: () => setShowProfile(true) },
         ].map(tab => (
           <button key={tab.id} onClick={() => { setActiveTab(tab.id); tab.action() }}
             className={`flex-1 flex flex-col items-center py-3 gap-1 text-xs transition-colors ${activeTab === tab.id ? 'text-green-500' : 'text-gray-400'}`}>
@@ -586,8 +590,7 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
   const [selectedActivity, setSelectedActivity] = useState<any>(null)
   const [selectedMatch, setSelectedMatch] = useState<any>(null)
   const today = new Date().toISOString().split('T')[0]
-const upcomingConfirmed = confirmedMatches.filter((m: any) => (m.date || '') >= today)
-  const pastConfirmed = confirmedMatches.filter((m: any) => (m.date || '') < today)
+
   useEffect(() => { fetchAll() }, [])
 
   const fetchAll = async () => {
@@ -598,16 +601,31 @@ const upcomingConfirmed = confirmedMatches.filter((m: any) => (m.date || '') >= 
       .eq('team_id', team.id).order('date', { ascending: true })
     setMyActivities(acts || [])
 
+    // My pending bookings (sent interest, waiting)
+    const { data: books } = await supabase.from('bookings')
+      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
+      .eq('team_id', team.id).eq('status', 'pending')
+      .order('created_at', { ascending: false })
+    setMyBookings(books || [])
 
-  // Mina pending anmälningar via RPC
-const { data: books } = await supabase
-  .rpc('get_my_bookings', { p_team_id: team.id })
-setMyBookings(books || [])
-
-   // All confirmed matches via RPC
-    const { data: confirmed } = await supabase.rpc('get_confirmed_matches', { p_team_id: team.id })
-    setConfirmedMatches(confirmed || [])
-    console.log('MyMatches confirmed:', confirmed)
+    // All confirmed matches
+    const { data: asReq } = await supabase.from('bookings')
+      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
+      .eq('team_id', team.id).eq('status', 'confirmed')
+    const { data: myActs } = await supabase.from('activities').select('id').eq('team_id', team.id)
+    const actIds = myActs?.map((a: any) => a.id) || []
+    let asOrg: any[] = []
+    if (actIds.length > 0) {
+      const { data } = await supabase.from('bookings')
+        .select('*, activities(*, teams(name)), teams(name, contact_method, contact_phone, contact_email)')
+        .in('activity_id', actIds).eq('status', 'confirmed')
+      asOrg = (data || []).map((b: any) => ({ ...b, role: 'organizer' }))
+    }
+    const allConfirmed = [
+      ...(asReq || []).map((b: any) => ({ ...b, role: 'requester' })),
+      ...asOrg,
+    ].sort((a, b) => (a.activities?.date || '') > (b.activities?.date || '') ? 1 : -1)
+    setConfirmedMatches(allConfirmed)
     setLoading(false)
   }
 
@@ -621,9 +639,9 @@ setMyBookings(books || [])
 
   const upcomingActs = myActivities.filter(a => a.date >= today)
   const pastActs = myActivities.filter(a => a.date < today)
-  console.log('första confirmed:', confirmedMatches[0])
-console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', confirmedMatches[0]?.date >= today)
- 
+  const upcomingConfirmed = confirmedMatches.filter(m => (m.activities?.date || '') >= today)
+  const pastConfirmed = confirmedMatches.filter(m => (m.activities?.date || '') < today)
+
   if (selectedMatch) {
     return <MatchCard match={selectedMatch} team={team} session={session}
       onBack={() => { setSelectedMatch(null); fetchAll() }}
@@ -723,20 +741,21 @@ console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', 
             )}
 
             {/* MINA ANMÄLNINGAR (pending only) */}
-         {activeTab === 'bookings' && (
+            {activeTab === 'bookings' && (
               <>
                 {myBookings.length === 0 && (
                   <div className="text-center py-12"><p className="text-2xl mb-2">📩</p><p className="text-sm text-gray-500">Inga väntande anmälningar</p></div>
                 )}
                 {myBookings.map(b => {
+                  const activity = b.activities
                   const isExpanded = expandedId === b.id
                   return (
                     <div key={b.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
                       <div onClick={() => setExpandedId(isExpanded ? null : b.id)}
                         className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50">
                         <div>
-                          <p className="text-sm font-medium text-gray-700">{b.type}</p>
-                          <p className="text-xs text-gray-400">{b.organizer_name} · {new Date(b.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}</p>
+                          <p className="text-sm font-medium text-gray-700">{activity?.type}</p>
+                          <p className="text-xs text-gray-400">{activity?.teams?.name} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600">Väntar</span>
@@ -745,10 +764,10 @@ console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', 
                       </div>
                       {isExpanded && (
                         <div className="px-3 pb-3 space-y-1 border-t border-gray-50 pt-2">
-                          <p className="text-xs text-gray-500">📅 {new Date(b.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {b.time?.substring(0, 5)}</p>
-                          <p className="text-xs text-gray-500">📍 {b.location}{b.kommun ? `, ${b.kommun}` : ''}</p>
-                          {b.formation && <p className="text-xs text-gray-500">⚽ {b.formation}</p>}
-                          {b.level && <p className="text-xs text-gray-500">📊 {b.level}</p>}
+                          <p className="text-xs text-gray-500">📅 {new Date(activity?.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {activity?.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-500">📍 {activity?.location}{activity?.kommun ? `, ${activity?.kommun}` : ''}</p>
+                          {activity?.formation && <p className="text-xs text-gray-500">⚽ {activity?.formation}</p>}
+                          {activity?.level && <p className="text-xs text-gray-500">📊 {activity?.level}</p>}
                         </div>
                       )}
                     </div>
@@ -756,15 +775,17 @@ console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', 
                 })}
               </>
             )}
+
             {/* BEKRÄFTADE */}
             {activeTab === 'confirmed' && (
               <>
                 {upcomingConfirmed.length === 0 && pastConfirmed.length === 0 && (
                   <div className="text-center py-12"><p className="text-2xl mb-2">✅</p><p className="text-sm text-gray-500">Inga bekräftade matcher</p></div>
                 )}
-               {upcomingConfirmed.map(m => {
+                {upcomingConfirmed.map(m => {
+                  const activity = m.activities
                   const isOrganizer = m.role === 'organizer'
-                  const opponent = m.opponent_name
+                  const opponent = isOrganizer ? m.teams?.name : activity?.teams?.name
                   const isExpanded = expandedId === m.id
                   return (
                     <div key={m.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -772,7 +793,7 @@ console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', 
                         className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50">
                         <div>
                           <p className="text-sm font-medium text-gray-700">vs {opponent}</p>
-                          <p className="text-xs text-gray-400">{m.type} · {new Date(m.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} · {m.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-400">{activity?.type} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} · {activity?.time?.substring(0, 5)}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-600">Bokad</span>
@@ -781,11 +802,11 @@ console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', 
                       </div>
                       {isExpanded && (
                         <div className="px-3 pb-3 space-y-2 border-t border-gray-50 pt-2">
-                          <p className="text-xs text-gray-500">📅 {new Date(m.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {m.time?.substring(0, 5)}</p>
-                          <p className="text-xs text-gray-500">📍 {m.location}{m.kommun ? `, ${m.kommun}` : ''}</p>
-                          {m.formation && <p className="text-xs text-gray-500">⚽ {m.formation}</p>}
-                          {!isOrganizer && <ContactButton activity={m} teamName={team.name} />}
-                          {isOrganizer && <p className="text-xs text-gray-400">Motståndaren kontaktar dig via {m.contact_method === 'whatsapp' ? 'WhatsApp' : m.contact_method}</p>}
+                          <p className="text-xs text-gray-500">📅 {new Date(activity?.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {activity?.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-500">📍 {activity?.location}{activity?.kommun ? `, ${activity?.kommun}` : ''}</p>
+                          {activity?.formation && <p className="text-xs text-gray-500">⚽ {activity?.formation}</p>}
+                          {!isOrganizer && <ContactButton activity={activity} teamName={team.name} />}
+                          {isOrganizer && <p className="text-xs text-gray-400">Motståndaren kontaktar dig via {activity?.contact_method === 'whatsapp' ? 'WhatsApp' : activity?.contact_method}</p>}
                           <button onClick={() => setSelectedMatch(m)}
                             className="w-full border border-red-200 text-red-600 py-2 rounded-xl text-xs font-medium mt-1">
                             Avboka match
@@ -1015,40 +1036,17 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
     const { data } = await supabase.from('config').select('*').eq('active', true).order('sort_order')
     if (data) { const grouped = data.reduce((acc: Record<string, any[]>, item) => { if (!acc[item.category]) acc[item.category] = []; acc[item.category].push(item); return acc }, {}); setConfig(grouped) }
   }
- const fetchActivities = async () => {
-  setLoading(true)
-
-  // Hämta aktiviteter som teamet redan anmält sig till
-  const { data: existingBookings } = await supabase
-    .from('bookings')
-    .select('activity_id')
-    .eq('team_id', team.id)
-    .in('status', ['pending', 'confirmed'])
-
-  const bookedActivityIds = existingBookings?.map((b: any) => b.activity_id) || []
-
-  let query = supabase.from('activities').select('*, teams(name, club, owner_id)')
-    .eq('status', 'open').neq('team_id', team.id)
-    .gte('date', filters.dateFrom || new Date().toISOString().split('T')[0])
-    .lte('date', filters.dateTo || '2099-12-31')
-    .order('date', { ascending: true })
-
-  if (filters.type) query = query.eq('type', filters.type)
-  if (filters.formation) query = query.eq('formation', filters.formation)
-  if (filters.level) query = query.ilike('level', `%${filters.level}%`)
-  if (filters.kommun) query = query.eq('kommun', filters.kommun)
-
-  const { data } = await query
-  
-  // Markera redan anmälda aktiviteter istället för att filtrera bort dem
-  const withStatus = (data || []).map((a: any) => ({
-    ...a,
-    alreadyApplied: bookedActivityIds.includes(a.id)
-  }))
-  
-  setActivities(withStatus)
-  setLoading(false)
-}
+  const fetchActivities = async () => {
+    setLoading(true)
+    let query = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).gte('date', filters.dateFrom || new Date().toISOString().split('T')[0]).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
+    if (filters.type) query = query.eq('type', filters.type)
+    if (filters.formation) query = query.eq('formation', filters.formation)
+    if (filters.level) query = query.ilike('level', `%${filters.level}%`)
+    if (filters.kommun) query = query.eq('kommun', filters.kommun)
+    const { data } = await query
+    setActivities(data || [])
+    setLoading(false)
+  }
   const updateFilter = (key: string, value: string) => setFilters(prev => ({ ...prev, [key]: value }))
   if (selectedActivity) return <InterestForm activity={selectedActivity} team={team} onBack={() => setSelectedActivity(null)} onSent={() => { setSelectedActivity(null); fetchActivities() }} />
   return (
@@ -1086,15 +1084,7 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
               <div className="flex gap-3 text-xs text-gray-500">{a.formation && <span>⚽ {a.formation}</span>}{a.level && <span>📊 {a.level}</span>}{a.duration && <span>⏱ {a.duration}</span>}</div>
               {a.cost > 0 && <div className="text-xs text-amber-600">💰 {a.cost} kr/lag</div>}
             </div>
-           {a.alreadyApplied ? (
-  <div className="w-full bg-gray-100 text-gray-500 py-2 rounded-xl text-sm font-medium text-center">
-    ✓ Anmälan skickad
-  </div>
-) : (
-  <button onClick={() => setSelectedActivity(a)} className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">
-    Anmäl intresse
-  </button>
-)}
+            <button onClick={() => setSelectedActivity(a)} className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">Anmäl intresse</button>
           </div>
         ))}
       </div>
@@ -1103,44 +1093,19 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
 }
 
 function InterestForm({ activity, team, onBack, onSent }: { activity: any, team: any, onBack: () => void, onSent: () => void }) {
-const [message, setMessage] = useState('')
-const [loading, setLoading] = useState(false)
-const sendingRef = useRef(false)
- 
-const handleSend = async () => {
-  if (loading || sendingRef.current) return
-  sendingRef.current = true
-  setLoading(true)
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const handleSend = async () => {
+    setLoading(true)
     const { data: teamData } = await supabase.from('teams').select('owner_id').eq('id', activity.team_id).single()
     const { error } = await supabase.from('bookings').insert({ activity_id: activity.id, team_id: team.id, status: 'pending', message })
     if (error) { alert(error.message) }
     else if (teamData?.owner_id) {
-     await supabase.from('notifications').insert({
-  user_id: teamData.owner_id, type: 'interest',
-  message: `${team.name} är intresserade av din ${activity.type} ${new Date(activity.date).toLocaleDateString('sv-SE')}`,
-  read: false,
-})
-// Skicka email
-const { data: emailData } = await supabase.rpc('get_user_email', { p_user_id: teamData.owner_id })
-console.log('email:', emailData)
-if (emailData) {
-  
-  const { sendEmail } = await import('./supabase')
-console.log('skickar email...') 
-  await sendEmail('interest', emailData, activity.teams?.name || '', {
-    team_name: team.name,
-    activity_type: activity.type,
-    date: new Date(activity.date).toLocaleDateString('sv-SE'),
-    time: activity.time?.substring(0, 5),
-    location: activity.location,
-    message: message,
-  })
-}
-alert('Intresseanmälan skickad!')
-onSent()
+      await supabase.from('notifications').insert({ user_id: teamData.owner_id, type: 'interest', message: `${team.name} är intresserade av din ${activity.type} ${new Date(activity.date).toLocaleDateString('sv-SE')}`, read: false })
+      alert('Intresseanmälan skickad!')
+      onSent()
     } else { alert('Intresseanmälan skickad!'); onSent() }
-   sendingRef.current = false
-setLoading(false)
+    setLoading(false)
   }
   return (
     <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
@@ -1320,6 +1285,207 @@ function ConfirmedScreen({ booking, isRequester, onBack }: { booking: any, isReq
         </div>}
         <button onClick={onBack} className="w-full border border-gray-200 text-gray-600 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">Tillbaka till startsidan</button>
       </div>
+    </div>
+  )
+}
+
+function ProfileView({ session, onBack }: { session: any, onBack: () => void }) {
+  const [profile, setProfile] = useState<any>({})
+  const [watches, setWatches] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showAddWatch, setShowAddWatch] = useState(false)
+  const [config, setConfig] = useState<Record<string, any[]>>({})
+  const [newWatch, setNewWatch] = useState({ name: '', filter_type: '', filter_formation: '', filter_level: '', filter_kommun: '' })
+
+  const stockholmKommuner = ['Botkyrka','Danderyd','Ekerö','Haninge','Huddinge','Järfälla','Lidingö','Nacka','Norrtälje','Nykvarn','Nynäshamn','Salem','Sigtuna','Sollentuna','Solna','Stockholm','Sundbyberg','Södertälje','Tyresö','Täby','Upplands-Bro','Upplands Väsby','Vallentuna','Vaxholm','Värmdö','Österåker']
+
+  useEffect(() => { fetchProfile(); fetchWatches(); fetchConfig() }, [])
+
+  const fetchConfig = async () => {
+    const { data } = await supabase.from('config').select('*').eq('active', true).order('sort_order')
+    if (data) {
+      const grouped = data.reduce((acc: Record<string, any[]>, item) => {
+        if (!acc[item.category]) acc[item.category] = []
+        acc[item.category].push(item)
+        return acc
+      }, {})
+      setConfig(grouped)
+    }
+  }
+
+  const fetchProfile = async () => {
+    const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
+    setProfile(data || {})
+    setLoading(false)
+  }
+
+  const fetchWatches = async () => {
+    const { data } = await supabase.from('watches').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false })
+    setWatches(data || [])
+  }
+
+  const saveProfile = async () => {
+    setSaving(true)
+    await supabase.from('profiles').upsert({
+      id: session.user.id,
+      ...profile,
+    })
+    setSaving(false)
+    alert('Sparat!')
+  }
+
+  const addWatch = async () => {
+    if (!newWatch.name) { alert('Ange ett namn för bevakningen'); return }
+    await supabase.from('watches').insert({ user_id: session.user.id, ...newWatch })
+    setNewWatch({ name: '', filter_type: '', filter_formation: '', filter_level: '', filter_kommun: '' })
+    setShowAddWatch(false)
+    fetchWatches()
+  }
+
+  const deleteWatch = async (id: string) => {
+    if (!confirm('Ta bort bevakningen?')) return
+    await supabase.from('watches').delete().eq('id', id)
+    fetchWatches()
+  }
+
+  const toggle = (key: string) => setProfile((prev: any) => ({ ...prev, [key]: !prev[key] }))
+
+  const notifySettings = [
+    { key: 'notify_interest', label: 'Ny intresseanmälan på min annons' },
+    { key: 'notify_accepted', label: 'Min anmälan bekräftad' },
+    { key: 'notify_rejected', label: 'Min anmälan avvisad' },
+    { key: 'notify_cancelled', label: 'Match avbokad' },
+    { key: 'notify_watch', label: 'Ny match matchar min bevakning' },
+  ]
+
+  return (
+    <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
+      <div className="bg-green-500 p-5 flex items-center gap-3">
+        <button onClick={onBack} className="text-white text-xl">←</button>
+        <h1 className="text-white text-xl font-medium">Profil</h1>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-8">Laddar...</p>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4 space-y-5 pb-24">
+
+          {/* Kontaktinfo */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
+            <p className="text-sm font-medium text-gray-700">Min profil</p>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Email</label>
+              <p className="text-sm text-gray-400 px-4 py-3 bg-gray-50 rounded-xl">{session.user.email}</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Namn</label>
+              <input type="text" placeholder="Ditt namn" value={profile.full_name || ''}
+                onChange={e => setProfile((p: any) => ({ ...p, full_name: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Telefonnummer</label>
+              <input type="tel" placeholder="t.ex. 0701234567" value={profile.phone || ''}
+                onChange={e => setProfile((p: any) => ({ ...p, phone: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+            </div>
+            <button onClick={saveProfile} disabled={saving}
+              className="w-full bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">
+              {saving ? 'Sparar...' : 'Spara'}
+            </button>
+          </div>
+
+          {/* Notifieringsinställningar */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
+            <p className="text-sm font-medium text-gray-700">Email-notifieringar</p>
+            {notifySettings.map(s => (
+              <div key={s.key} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{s.label}</span>
+                <button onClick={() => toggle(s.key)}
+                  style={{
+                    width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+                    background: profile[s.key] !== false ? '#22c55e' : '#e5e7eb',
+                    position: 'relative', transition: 'background 0.2s',
+                  }}>
+                  <span style={{
+                    position: 'absolute', top: '2px',
+                    left: profile[s.key] !== false ? '22px' : '2px',
+                    width: '20px', height: '20px', borderRadius: '50%',
+                    background: 'white', transition: 'left 0.2s',
+                  }} />
+                </button>
+              </div>
+            ))}
+            <button onClick={saveProfile} disabled={saving}
+              className="w-full border border-gray-200 text-gray-600 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
+              {saving ? 'Sparar...' : 'Spara inställningar'}
+            </button>
+          </div>
+
+          {/* Bevakningar */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
+            <div className="flex justify-between items-center">
+              <p className="text-sm font-medium text-gray-700">Bevakningar</p>
+              <button onClick={() => setShowAddWatch(!showAddWatch)}
+                className="text-xs text-green-500 font-medium">
+                + Lägg till
+              </button>
+            </div>
+
+            {showAddWatch && (
+              <div className="space-y-2 border border-gray-100 rounded-xl p-3">
+                <input type="text" placeholder="Namn på bevakning, t.ex. P15 7v7" value={newWatch.name}
+                  onChange={e => setNewWatch(p => ({ ...p, name: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+                <select value={newWatch.filter_type} onChange={e => setNewWatch(p => ({ ...p, filter_type: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
+                  <option value="">Alla typer</option>
+                  {(config.activity_type || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}
+                </select>
+                <select value={newWatch.filter_formation} onChange={e => setNewWatch(p => ({ ...p, filter_formation: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
+                  <option value="">Alla uppställningar</option>
+                  {(config.formation || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}
+                </select>
+                <select value={newWatch.filter_level} onChange={e => setNewWatch(p => ({ ...p, filter_level: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
+                  <option value="">Alla nivåer</option>
+                  {(config.level || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}
+                </select>
+                <select value={newWatch.filter_kommun} onChange={e => setNewWatch(p => ({ ...p, filter_kommun: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
+                  <option value="">Alla kommuner</option>
+                  {stockholmKommuner.map(k => <option key={k} value={k}>{k}</option>)}
+                </select>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setShowAddWatch(false)}
+                    className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm">Avbryt</button>
+                  <button onClick={addWatch}
+                    className="flex-1 bg-green-500 text-white py-2 rounded-xl text-sm font-medium">Spara</button>
+                </div>
+              </div>
+            )}
+
+            {watches.length === 0 && !showAddWatch && (
+              <p className="text-sm text-gray-400 text-center py-2">Inga bevakningar än</p>
+            )}
+
+            {watches.map(w => (
+              <div key={w.id} className="flex items-start justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">{w.name}</p>
+                  <p className="text-xs text-gray-400">
+                    {[w.filter_type, w.filter_formation, w.filter_level, w.filter_kommun].filter(Boolean).join(' · ') || 'Alla matcher'}
+                  </p>
+                </div>
+                <button onClick={() => deleteWatch(w.id)} className="text-xs text-red-400 ml-2">Ta bort</button>
+              </div>
+            ))}
+          </div>
+
+        </div>
+      )}
     </div>
   )
 }

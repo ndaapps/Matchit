@@ -135,7 +135,7 @@ function Home({ session }: { session: any }) {
           onCreated={() => { setShowCreateActivity(false); fetchConfirmedMatches() }}
           onBack={() => setShowCreateActivity(false)} />
       )}
-      {showFindMatch && team && <FindMatch team={team} onBack={() => setShowFindMatch(false)} />}
+      {showFindMatch && team && <FindMatch team={team} session={session} onBack={() => setShowFindMatch(false)} />}
       {showIncoming && team && (
         <IncomingRequests team={team}
           onBack={() => { setShowIncoming(false); fetchNotifications(); fetchConfirmedMatches() }} />
@@ -1023,12 +1023,15 @@ function CreateActivity({ team, onCreated, onBack }: { team: any, onCreated: () 
   )
 }
 
-function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
+function FindMatch({ team, session, onBack }: { team: any, session: any, onBack: () => void }) {
   const [activities, setActivities] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<Record<string, any[]>>({})
   const [selectedActivity, setSelectedActivity] = useState<any>(null)
   const [filters, setFilters] = useState({ type: '', formation: '', level: '', kommun: '', dateFrom: '', dateTo: '' })
+  const [saveWatch, setSaveWatch] = useState(false)
+  const [watchName, setWatchName] = useState('')
+  const [watchLevels, setWatchLevels] = useState<string[]>([])
   const stockholmKommuner = ['Botkyrka', 'Danderyd', 'Ekerö', 'Haninge', 'Huddinge', 'Järfälla', 'Lidingö', 'Nacka', 'Norrtälje', 'Nykvarn', 'Nynäshamn', 'Salem', 'Sigtuna', 'Sollentuna', 'Solna', 'Stockholm', 'Sundbyberg', 'Södertälje', 'Tyresö', 'Täby', 'Upplands-Bro', 'Upplands Väsby', 'Vallentuna', 'Vaxholm', 'Värmdö', 'Österåker']
   useEffect(() => { fetchConfig(); fetchActivities() }, [])
   useEffect(() => { fetchActivities() }, [filters])
@@ -1038,17 +1041,92 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
   }
   const fetchActivities = async () => {
     setLoading(true)
+    const { data: existingBookings } = await supabase.from('bookings').select('activity_id').eq('team_id', team.id).in('status', ['pending', 'confirmed'])
+    const bookedActivityIds = existingBookings?.map((b: any) => b.activity_id) || []
     let query = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).gte('date', filters.dateFrom || new Date().toISOString().split('T')[0]).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
     if (filters.type) query = query.eq('type', filters.type)
     if (filters.formation) query = query.eq('formation', filters.formation)
     if (filters.level) query = query.ilike('level', `%${filters.level}%`)
     if (filters.kommun) query = query.eq('kommun', filters.kommun)
     const { data } = await query
-    setActivities(data || [])
+    const withStatus = (data || []).map((a: any) => ({ ...a, alreadyApplied: bookedActivityIds.includes(a.id) }))
+    setActivities(withStatus)
     setLoading(false)
   }
   const updateFilter = (key: string, value: string) => setFilters(prev => ({ ...prev, [key]: value }))
+
   if (selectedActivity) return <InterestForm activity={selectedActivity} team={team} onBack={() => setSelectedActivity(null)} onSent={() => { setSelectedActivity(null); fetchActivities() }} />
+
+  if (saveWatch) {
+    return (
+      <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
+        <div className="bg-green-500 p-5 flex items-center gap-3">
+          <button onClick={() => setSaveWatch(false)} className="text-white text-xl">←</button>
+          <h1 className="text-white text-xl font-medium">Spara bevakning</h1>
+        </div>
+        <div className="flex-1 p-4 space-y-4 overflow-y-auto pb-24">
+          <div style={{ background: '#f0fdf4', borderRadius: '12px', padding: '12px' }}>
+            <p className="text-xs text-gray-600">Dina nuvarande filter sparas och du får ett mail när en ny match matchar.</p>
+          </div>
+          <div>
+            <label className="text-sm text-gray-500 mb-1 block">Namn på bevakning *</label>
+            <input type="text" placeholder="t.ex. P15 7v7 Stockholm" value={watchName}
+              onChange={e => setWatchName(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-1">
+            <p className="text-xs text-gray-500 font-medium mb-2">Aktiva filter:</p>
+            {filters.type && <p className="text-xs text-gray-600">Typ: {filters.type}</p>}
+            {filters.formation && <p className="text-xs text-gray-600">Uppställning: {filters.formation}</p>}
+            {filters.kommun && <p className="text-xs text-gray-600">Kommun: {filters.kommun}</p>}
+            {watchLevels.length > 0 && <p className="text-xs text-gray-600">Nivå: {watchLevels.join(', ')}</p>}
+            {!filters.type && !filters.formation && !filters.kommun && watchLevels.length === 0 && (
+              <p className="text-xs text-gray-400">Inga filter – bevakar alla matcher</p>
+            )}
+          </div>
+          <div>
+            <label className="text-sm text-gray-500 mb-2 block">Nivå (valfritt, välj flera)</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {(config.level || []).map((c: any) => (
+                <button key={c.value} type="button"
+                  onClick={() => setWatchLevels(prev => prev.includes(c.label) ? prev.filter(l => l !== c.label) : [...prev, c.label])}
+                  style={{
+                    padding: '8px 12px', borderRadius: '12px', border: '1px solid',
+                    borderColor: watchLevels.includes(c.label) ? '#22c55e' : '#e5e7eb',
+                    backgroundColor: watchLevels.includes(c.label) ? '#22c55e' : 'white',
+                    color: watchLevels.includes(c.label) ? 'white' : '#4b5563',
+                    cursor: 'pointer', fontSize: '14px',
+                  }}>{c.label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => setSaveWatch(false)}
+              className="flex-1 border border-gray-200 text-gray-600 py-3 rounded-xl text-sm font-medium">Avbryt</button>
+            <button onClick={async () => {
+              if (!watchName) { alert('Ange ett namn'); return }
+              await supabase.from('watches').insert({
+                user_id: session.user.id,
+                name: watchName,
+                filter_type: filters.type || null,
+                filter_formation: filters.formation || null,
+                filter_levels: watchLevels.length > 0 ? watchLevels.join(', ') : null,
+                filter_kommun: filters.kommun || null,
+              })
+              setSaveWatch(false)
+              setWatchName('')
+              setWatchLevels([])
+              alert('Bevakning sparad!')
+            }}
+              className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600">
+              Spara
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
       <div className="bg-green-500 p-5 flex items-center gap-3">
@@ -1068,6 +1146,9 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
           <div><label className="text-xs text-gray-400 mb-1 block">Från datum</label><input type="date" value={filters.dateFrom} onChange={e => updateFilter('dateFrom', e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" /></div>
           <div><label className="text-xs text-gray-400 mb-1 block">Till datum</label><input type="date" value={filters.dateTo} onChange={e => updateFilter('dateTo', e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" /></div>
         </div>
+        <div className="flex justify-end">
+          <button onClick={() => setSaveWatch(true)} className="text-xs text-green-600 font-medium">🔔 Spara som bevakning</button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading ? <p className="text-sm text-gray-400 text-center py-8">Laddar...</p> : activities.length === 0 ? (
@@ -1084,7 +1165,11 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
               <div className="flex gap-3 text-xs text-gray-500">{a.formation && <span>⚽ {a.formation}</span>}{a.level && <span>📊 {a.level}</span>}{a.duration && <span>⏱ {a.duration}</span>}</div>
               {a.cost > 0 && <div className="text-xs text-amber-600">💰 {a.cost} kr/lag</div>}
             </div>
-            <button onClick={() => setSelectedActivity(a)} className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">Anmäl intresse</button>
+            {a.alreadyApplied ? (
+              <div className="w-full bg-gray-100 text-gray-500 py-2 rounded-xl text-sm font-medium text-center">✓ Anmälan skickad</div>
+            ) : (
+              <button onClick={() => setSelectedActivity(a)} className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">Anmäl intresse</button>
+            )}
           </div>
         ))}
       </div>
@@ -1294,25 +1379,8 @@ function ProfileView({ session, onBack }: { session: any, onBack: () => void }) 
   const [watches, setWatches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [showAddWatch, setShowAddWatch] = useState(false)
-  const [config, setConfig] = useState<Record<string, any[]>>({})
-  const [newWatch, setNewWatch] = useState({ name: '', filter_type: '', filter_formation: '', filter_level: '', filter_kommun: '' })
 
-  const stockholmKommuner = ['Botkyrka','Danderyd','Ekerö','Haninge','Huddinge','Järfälla','Lidingö','Nacka','Norrtälje','Nykvarn','Nynäshamn','Salem','Sigtuna','Sollentuna','Solna','Stockholm','Sundbyberg','Södertälje','Tyresö','Täby','Upplands-Bro','Upplands Väsby','Vallentuna','Vaxholm','Värmdö','Österåker']
-
-  useEffect(() => { fetchProfile(); fetchWatches(); fetchConfig() }, [])
-
-  const fetchConfig = async () => {
-    const { data } = await supabase.from('config').select('*').eq('active', true).order('sort_order')
-    if (data) {
-      const grouped = data.reduce((acc: Record<string, any[]>, item) => {
-        if (!acc[item.category]) acc[item.category] = []
-        acc[item.category].push(item)
-        return acc
-      }, {})
-      setConfig(grouped)
-    }
-  }
+  useEffect(() => { fetchProfile(); fetchWatches() }, [])
 
   const fetchProfile = async () => {
     const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
@@ -1327,20 +1395,9 @@ function ProfileView({ session, onBack }: { session: any, onBack: () => void }) 
 
   const saveProfile = async () => {
     setSaving(true)
-    await supabase.from('profiles').upsert({
-      id: session.user.id,
-      ...profile,
-    })
+    await supabase.from('profiles').upsert({ id: session.user.id, ...profile })
     setSaving(false)
     alert('Sparat!')
-  }
-
-  const addWatch = async () => {
-    if (!newWatch.name) { alert('Ange ett namn för bevakningen'); return }
-    await supabase.from('watches').insert({ user_id: session.user.id, ...newWatch })
-    setNewWatch({ name: '', filter_type: '', filter_formation: '', filter_level: '', filter_kommun: '' })
-    setShowAddWatch(false)
-    fetchWatches()
   }
 
   const deleteWatch = async (id: string) => {
@@ -1427,61 +1484,23 @@ function ProfileView({ session, onBack }: { session: any, onBack: () => void }) 
           <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
             <div className="flex justify-between items-center">
               <p className="text-sm font-medium text-gray-700">Bevakningar</p>
-              <button onClick={() => setShowAddWatch(!showAddWatch)}
-                className="text-xs text-green-500 font-medium">
-                + Lägg till
-              </button>
+              <p className="text-xs text-gray-400">Skapa i "Hitta match"</p>
             </div>
-
-            {showAddWatch && (
-              <div className="space-y-2 border border-gray-100 rounded-xl p-3">
-                <input type="text" placeholder="Namn på bevakning, t.ex. P15 7v7" value={newWatch.name}
-                  onChange={e => setNewWatch(p => ({ ...p, name: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
-                <select value={newWatch.filter_type} onChange={e => setNewWatch(p => ({ ...p, filter_type: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
-                  <option value="">Alla typer</option>
-                  {(config.activity_type || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}
-                </select>
-                <select value={newWatch.filter_formation} onChange={e => setNewWatch(p => ({ ...p, filter_formation: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
-                  <option value="">Alla uppställningar</option>
-                  {(config.formation || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}
-                </select>
-                <select value={newWatch.filter_level} onChange={e => setNewWatch(p => ({ ...p, filter_level: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
-                  <option value="">Alla nivåer</option>
-                  {(config.level || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}
-                </select>
-                <select value={newWatch.filter_kommun} onChange={e => setNewWatch(p => ({ ...p, filter_kommun: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white">
-                  <option value="">Alla kommuner</option>
-                  {stockholmKommuner.map(k => <option key={k} value={k}>{k}</option>)}
-                </select>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => setShowAddWatch(false)}
-                    className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm">Avbryt</button>
-                  <button onClick={addWatch}
-                    className="flex-1 bg-green-500 text-white py-2 rounded-xl text-sm font-medium">Spara</button>
-                </div>
-              </div>
-            )}
-
-            {watches.length === 0 && !showAddWatch && (
+            {watches.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-2">Inga bevakningar än</p>
-            )}
-
-            {watches.map(w => (
-              <div key={w.id} className="flex items-start justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                <div>
-                  <p className="text-sm font-medium text-gray-700">{w.name}</p>
-                  <p className="text-xs text-gray-400">
-                    {[w.filter_type, w.filter_formation, w.filter_level, w.filter_kommun].filter(Boolean).join(' · ') || 'Alla matcher'}
-                  </p>
+            ) : (
+              watches.map(w => (
+                <div key={w.id} className="flex items-start justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">{w.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {[w.filter_type, w.filter_formation, w.filter_levels, w.filter_kommun].filter(Boolean).join(' · ') || 'Alla matcher'}
+                    </p>
+                  </div>
+                  <button onClick={() => deleteWatch(w.id)} className="text-xs text-red-400 ml-2 flex-shrink-0">Ta bort</button>
                 </div>
-                <button onClick={() => deleteWatch(w.id)} className="text-xs text-red-400 ml-2">Ta bort</button>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
         </div>

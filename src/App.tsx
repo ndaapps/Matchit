@@ -596,12 +596,11 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
       .eq('team_id', team.id).order('date', { ascending: true })
     setMyActivities(acts || [])
 
-    // My pending bookings (sent interest, waiting)
-    const { data: books } = await supabase.from('bookings')
-      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
-      .eq('team_id', team.id).eq('status', 'pending')
-      .order('created_at', { ascending: false })
-    setMyBookings(books || [])
+
+  // Mina pending anmälningar via RPC
+const { data: books } = await supabase
+  .rpc('get_my_bookings', { p_team_id: team.id })
+setMyBookings(books || [])
 
     // All confirmed matches
     const { data: asReq } = await supabase.from('bookings')
@@ -736,21 +735,20 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
             )}
 
             {/* MINA ANMÄLNINGAR (pending only) */}
-            {activeTab === 'bookings' && (
+         {activeTab === 'bookings' && (
               <>
                 {myBookings.length === 0 && (
                   <div className="text-center py-12"><p className="text-2xl mb-2">📩</p><p className="text-sm text-gray-500">Inga väntande anmälningar</p></div>
                 )}
                 {myBookings.map(b => {
-                  const activity = b.activities
                   const isExpanded = expandedId === b.id
                   return (
                     <div key={b.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
                       <div onClick={() => setExpandedId(isExpanded ? null : b.id)}
                         className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50">
                         <div>
-                          <p className="text-sm font-medium text-gray-700">{activity?.type}</p>
-                          <p className="text-xs text-gray-400">{activity?.teams?.name} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}</p>
+                          <p className="text-sm font-medium text-gray-700">{b.type}</p>
+                          <p className="text-xs text-gray-400">{b.organizer_name} · {new Date(b.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600">Väntar</span>
@@ -759,10 +757,10 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
                       </div>
                       {isExpanded && (
                         <div className="px-3 pb-3 space-y-1 border-t border-gray-50 pt-2">
-                          <p className="text-xs text-gray-500">📅 {new Date(activity?.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {activity?.time?.substring(0, 5)}</p>
-                          <p className="text-xs text-gray-500">📍 {activity?.location}{activity?.kommun ? `, ${activity?.kommun}` : ''}</p>
-                          {activity?.formation && <p className="text-xs text-gray-500">⚽ {activity?.formation}</p>}
-                          {activity?.level && <p className="text-xs text-gray-500">📊 {activity?.level}</p>}
+                          <p className="text-xs text-gray-500">📅 {new Date(b.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {b.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-500">📍 {b.location}{b.kommun ? `, ${b.kommun}` : ''}</p>
+                          {b.formation && <p className="text-xs text-gray-500">⚽ {b.formation}</p>}
+                          {b.level && <p className="text-xs text-gray-500">📊 {b.level}</p>}
                         </div>
                       )}
                     </div>
@@ -770,7 +768,6 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
                 })}
               </>
             )}
-
             {/* BEKRÄFTADE */}
             {activeTab === 'confirmed' && (
               <>

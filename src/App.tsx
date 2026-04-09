@@ -100,6 +100,7 @@ function Home({ session }: { session: any }) {
   const fetchConfirmedMatches = async () => {
     if (!team) return
     const today = new Date().toISOString().split('T')[0]
+ 
     const { data } = await supabase.rpc('get_confirmed_matches', { p_team_id: team.id })
     const upcoming = (data || []).filter((m: any) => m.date >= today)
     setConfirmedMatches(upcoming)
@@ -140,9 +141,9 @@ function Home({ session }: { session: any }) {
           onBack={() => { setShowIncoming(false); fetchNotifications(); fetchConfirmedMatches() }} />
       )}
       {showMyMatches && team && (
-        <MyMatches team={team} session={session} initialTab={showMyMatches}
-          onBack={() => { setShowMyMatches(null); fetchConfirmedMatches() }} />
-      )}
+  <MyMatches key={showMyMatches} team={team} session={session} initialTab={showMyMatches}
+    onBack={() => { setShowMyMatches(null); fetchConfirmedMatches() }} />
+)}
       {showCalendar && team && (
         <CalendarView matches={confirmedMatches}
           onBack={() => setShowCalendar(false)}
@@ -585,7 +586,8 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
   const [selectedActivity, setSelectedActivity] = useState<any>(null)
   const [selectedMatch, setSelectedMatch] = useState<any>(null)
   const today = new Date().toISOString().split('T')[0]
-
+const upcomingConfirmed = confirmedMatches.filter((m: any) => (m.date || '') >= today)
+  const pastConfirmed = confirmedMatches.filter((m: any) => (m.date || '') < today)
   useEffect(() => { fetchAll() }, [])
 
   const fetchAll = async () => {
@@ -602,24 +604,10 @@ const { data: books } = await supabase
   .rpc('get_my_bookings', { p_team_id: team.id })
 setMyBookings(books || [])
 
-    // All confirmed matches
-    const { data: asReq } = await supabase.from('bookings')
-      .select('*, activities(*, teams(name, contact_method, contact_phone, contact_email))')
-      .eq('team_id', team.id).eq('status', 'confirmed')
-    const { data: myActs } = await supabase.from('activities').select('id').eq('team_id', team.id)
-    const actIds = myActs?.map((a: any) => a.id) || []
-    let asOrg: any[] = []
-    if (actIds.length > 0) {
-      const { data } = await supabase.from('bookings')
-        .select('*, activities(*, teams(name)), teams(name, contact_method, contact_phone, contact_email)')
-        .in('activity_id', actIds).eq('status', 'confirmed')
-      asOrg = (data || []).map((b: any) => ({ ...b, role: 'organizer' }))
-    }
-    const allConfirmed = [
-      ...(asReq || []).map((b: any) => ({ ...b, role: 'requester' })),
-      ...asOrg,
-    ].sort((a, b) => (a.activities?.date || '') > (b.activities?.date || '') ? 1 : -1)
-    setConfirmedMatches(allConfirmed)
+   // All confirmed matches via RPC
+    const { data: confirmed } = await supabase.rpc('get_confirmed_matches', { p_team_id: team.id })
+    setConfirmedMatches(confirmed || [])
+    console.log('MyMatches confirmed:', confirmed)
     setLoading(false)
   }
 
@@ -633,9 +621,9 @@ setMyBookings(books || [])
 
   const upcomingActs = myActivities.filter(a => a.date >= today)
   const pastActs = myActivities.filter(a => a.date < today)
-  const upcomingConfirmed = confirmedMatches.filter(m => (m.activities?.date || '') >= today)
-  const pastConfirmed = confirmedMatches.filter(m => (m.activities?.date || '') < today)
-
+  console.log('första confirmed:', confirmedMatches[0])
+console.log('datum jämförelse:', confirmedMatches[0]?.date, '>=', today, '=', confirmedMatches[0]?.date >= today)
+ 
   if (selectedMatch) {
     return <MatchCard match={selectedMatch} team={team} session={session}
       onBack={() => { setSelectedMatch(null); fetchAll() }}
@@ -774,10 +762,9 @@ setMyBookings(books || [])
                 {upcomingConfirmed.length === 0 && pastConfirmed.length === 0 && (
                   <div className="text-center py-12"><p className="text-2xl mb-2">✅</p><p className="text-sm text-gray-500">Inga bekräftade matcher</p></div>
                 )}
-                {upcomingConfirmed.map(m => {
-                  const activity = m.activities
+               {upcomingConfirmed.map(m => {
                   const isOrganizer = m.role === 'organizer'
-                  const opponent = isOrganizer ? m.teams?.name : activity?.teams?.name
+                  const opponent = m.opponent_name
                   const isExpanded = expandedId === m.id
                   return (
                     <div key={m.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -785,7 +772,7 @@ setMyBookings(books || [])
                         className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50">
                         <div>
                           <p className="text-sm font-medium text-gray-700">vs {opponent}</p>
-                          <p className="text-xs text-gray-400">{activity?.type} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} · {activity?.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-400">{m.type} · {new Date(m.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} · {m.time?.substring(0, 5)}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-600">Bokad</span>
@@ -794,11 +781,11 @@ setMyBookings(books || [])
                       </div>
                       {isExpanded && (
                         <div className="px-3 pb-3 space-y-2 border-t border-gray-50 pt-2">
-                          <p className="text-xs text-gray-500">📅 {new Date(activity?.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {activity?.time?.substring(0, 5)}</p>
-                          <p className="text-xs text-gray-500">📍 {activity?.location}{activity?.kommun ? `, ${activity?.kommun}` : ''}</p>
-                          {activity?.formation && <p className="text-xs text-gray-500">⚽ {activity?.formation}</p>}
-                          {!isOrganizer && <ContactButton activity={activity} teamName={team.name} />}
-                          {isOrganizer && <p className="text-xs text-gray-400">Motståndaren kontaktar dig via {activity?.contact_method === 'whatsapp' ? 'WhatsApp' : activity?.contact_method}</p>}
+                          <p className="text-xs text-gray-500">📅 {new Date(m.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })} · {m.time?.substring(0, 5)}</p>
+                          <p className="text-xs text-gray-500">📍 {m.location}{m.kommun ? `, ${m.kommun}` : ''}</p>
+                          {m.formation && <p className="text-xs text-gray-500">⚽ {m.formation}</p>}
+                          {!isOrganizer && <ContactButton activity={m} teamName={team.name} />}
+                          {isOrganizer && <p className="text-xs text-gray-400">Motståndaren kontaktar dig via {m.contact_method === 'whatsapp' ? 'WhatsApp' : m.contact_method}</p>}
                           <button onClick={() => setSelectedMatch(m)}
                             className="w-full border border-red-200 text-red-600 py-2 rounded-xl text-xs font-medium mt-1">
                             Avboka match

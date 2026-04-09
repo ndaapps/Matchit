@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import { useLanguage } from './useLanguage'
 
@@ -1028,17 +1028,40 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
     const { data } = await supabase.from('config').select('*').eq('active', true).order('sort_order')
     if (data) { const grouped = data.reduce((acc: Record<string, any[]>, item) => { if (!acc[item.category]) acc[item.category] = []; acc[item.category].push(item); return acc }, {}); setConfig(grouped) }
   }
-  const fetchActivities = async () => {
-    setLoading(true)
-    let query = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).gte('date', filters.dateFrom || new Date().toISOString().split('T')[0]).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
-    if (filters.type) query = query.eq('type', filters.type)
-    if (filters.formation) query = query.eq('formation', filters.formation)
-    if (filters.level) query = query.ilike('level', `%${filters.level}%`)
-    if (filters.kommun) query = query.eq('kommun', filters.kommun)
-    const { data } = await query
-    setActivities(data || [])
-    setLoading(false)
-  }
+ const fetchActivities = async () => {
+  setLoading(true)
+
+  // Hämta aktiviteter som teamet redan anmält sig till
+  const { data: existingBookings } = await supabase
+    .from('bookings')
+    .select('activity_id')
+    .eq('team_id', team.id)
+    .in('status', ['pending', 'confirmed'])
+
+  const bookedActivityIds = existingBookings?.map((b: any) => b.activity_id) || []
+
+  let query = supabase.from('activities').select('*, teams(name, club, owner_id)')
+    .eq('status', 'open').neq('team_id', team.id)
+    .gte('date', filters.dateFrom || new Date().toISOString().split('T')[0])
+    .lte('date', filters.dateTo || '2099-12-31')
+    .order('date', { ascending: true })
+
+  if (filters.type) query = query.eq('type', filters.type)
+  if (filters.formation) query = query.eq('formation', filters.formation)
+  if (filters.level) query = query.ilike('level', `%${filters.level}%`)
+  if (filters.kommun) query = query.eq('kommun', filters.kommun)
+
+  const { data } = await query
+  
+  // Markera redan anmälda aktiviteter istället för att filtrera bort dem
+  const withStatus = (data || []).map((a: any) => ({
+    ...a,
+    alreadyApplied: bookedActivityIds.includes(a.id)
+  }))
+  
+  setActivities(withStatus)
+  setLoading(false)
+}
   const updateFilter = (key: string, value: string) => setFilters(prev => ({ ...prev, [key]: value }))
   if (selectedActivity) return <InterestForm activity={selectedActivity} team={team} onBack={() => setSelectedActivity(null)} onSent={() => { setSelectedActivity(null); fetchActivities() }} />
   return (
@@ -1076,7 +1099,15 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
               <div className="flex gap-3 text-xs text-gray-500">{a.formation && <span>⚽ {a.formation}</span>}{a.level && <span>📊 {a.level}</span>}{a.duration && <span>⏱ {a.duration}</span>}</div>
               {a.cost > 0 && <div className="text-xs text-amber-600">💰 {a.cost} kr/lag</div>}
             </div>
-            <button onClick={() => setSelectedActivity(a)} className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">Anmäl intresse</button>
+           {a.alreadyApplied ? (
+  <div className="w-full bg-gray-100 text-gray-500 py-2 rounded-xl text-sm font-medium text-center">
+    ✓ Anmälan skickad
+  </div>
+) : (
+  <button onClick={() => setSelectedActivity(a)} className="w-full bg-green-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">
+    Anmäl intresse
+  </button>
+)}
           </div>
         ))}
       </div>
@@ -1085,19 +1116,44 @@ function FindMatch({ team, onBack }: { team: any, onBack: () => void }) {
 }
 
 function InterestForm({ activity, team, onBack, onSent }: { activity: any, team: any, onBack: () => void, onSent: () => void }) {
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
-  const handleSend = async () => {
-    setLoading(true)
+const [message, setMessage] = useState('')
+const [loading, setLoading] = useState(false)
+const sendingRef = useRef(false)
+ 
+const handleSend = async () => {
+  if (loading || sendingRef.current) return
+  sendingRef.current = true
+  setLoading(true)
     const { data: teamData } = await supabase.from('teams').select('owner_id').eq('id', activity.team_id).single()
     const { error } = await supabase.from('bookings').insert({ activity_id: activity.id, team_id: team.id, status: 'pending', message })
     if (error) { alert(error.message) }
     else if (teamData?.owner_id) {
-      await supabase.from('notifications').insert({ user_id: teamData.owner_id, type: 'interest', message: `${team.name} är intresserade av din ${activity.type} ${new Date(activity.date).toLocaleDateString('sv-SE')}`, read: false })
-      alert('Intresseanmälan skickad!')
-      onSent()
+     await supabase.from('notifications').insert({
+  user_id: teamData.owner_id, type: 'interest',
+  message: `${team.name} är intresserade av din ${activity.type} ${new Date(activity.date).toLocaleDateString('sv-SE')}`,
+  read: false,
+})
+// Skicka email
+const { data: emailData } = await supabase.rpc('get_user_email', { p_user_id: teamData.owner_id })
+console.log('email:', emailData)
+if (emailData) {
+  
+  const { sendEmail } = await import('./supabase')
+console.log('skickar email...') 
+  await sendEmail('interest', emailData, activity.teams?.name || '', {
+    team_name: team.name,
+    activity_type: activity.type,
+    date: new Date(activity.date).toLocaleDateString('sv-SE'),
+    time: activity.time?.substring(0, 5),
+    location: activity.location,
+    message: message,
+  })
+}
+alert('Intresseanmälan skickad!')
+onSent()
     } else { alert('Intresseanmälan skickad!'); onSent() }
-    setLoading(false)
+   sendingRef.current = false
+setLoading(false)
   }
   return (
     <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">

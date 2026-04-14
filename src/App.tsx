@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import { useLanguage } from './useLanguage'
+import { CupsView } from './Cups'
 
 function App() {
   const [session, setSession] = useState<any>(null)
@@ -81,6 +82,7 @@ function Home({ session }: { session: any }) {
   const [selectedMatch, setSelectedMatch] = useState<any>(null)
   const [showBookingConfirmed, setShowBookingConfirmed] = useState<any>(null)
   const [showProfile, setShowProfile] = useState(false)
+  const [showCups, setShowCups] = useState(false)
 
   useEffect(() => { fetchTeam(); fetchNotifications() }, [])
   useEffect(() => { if (team) fetchConfirmedMatches() }, [team])
@@ -260,13 +262,16 @@ function Home({ session }: { session: any }) {
       {showProfile && (
         <ProfileView session={session} onBack={() => setShowProfile(false)} />
       )}
+      {showCups && (
+        <CupsView session={session} onBack={() => setShowCups(false)} />
+      )}
 
       <div className="nav-bar">
         {[
           { id: 'home', label: t.nav.home, icon: '🏠', action: () => {} },
           { id: 'search', label: t.nav.search, icon: '🔍', action: () => setShowFindMatch(true) },
           { id: 'post', label: t.nav.post, icon: '➕', action: () => setShowCreateActivity(true) },
-          { id: 'matches', label: 'Matcher', icon: '📋', action: () => setShowMyMatches('mine') },
+          { id: 'cups', label: 'Cuper', icon: '🏆', action: () => setShowCups(true) },
           { id: 'profile', label: t.nav.profile, icon: '👤', action: () => setShowProfile(true) },
         ].map(tab => (
           <button key={tab.id} onClick={() => { setActiveTab(tab.id); tab.action() }}

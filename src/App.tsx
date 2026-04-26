@@ -29,10 +29,12 @@ function Login() {
     setLoading(false)
   }
   const handleSignup = async () => {
+    if (!email || !password) { setMessage('Ange email och lösenord'); return }
     setLoading(true)
-    const { error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) setMessage(error.message)
-    else setMessage(t.auth.checkEmail)
+    else if (!data.session) setMessage(t.auth.checkEmail)
+    // if data.session exists, onAuthStateChange fires and logs the user in automatically
     setLoading(false)
   }
   return (

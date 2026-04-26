@@ -83,9 +83,10 @@ function Home({ session }: { session: any }) {
   const [showBookingConfirmed, setShowBookingConfirmed] = useState<any>(null)
   const [showProfile, setShowProfile] = useState(false)
   const [showCups, setShowCups] = useState(false)
+  const [pendingBookings, setPendingBookings] = useState<any[]>([])
 
   useEffect(() => { fetchTeam(); fetchNotifications() }, [])
-  useEffect(() => { if (team) fetchConfirmedMatches() }, [team])
+  useEffect(() => { if (team) { fetchConfirmedMatches(); fetchPendingBookings() } }, [team])
 
   const fetchTeam = async () => {
     const { data } = await supabase.from('teams').select('*').eq('owner_id', session.user.id).single()
@@ -106,6 +107,18 @@ function Home({ session }: { session: any }) {
     const { data } = await supabase.rpc('get_confirmed_matches', { p_team_id: team.id })
     const upcoming = (data || []).filter((m: any) => m.date >= today)
     setConfirmedMatches(upcoming)
+  }
+
+  const fetchPendingBookings = async () => {
+    if (!team) return
+    const { data: myActs } = await supabase.from('activities').select('id').eq('team_id', team.id)
+    const actIds = myActs?.map((a: any) => a.id) || []
+    if (actIds.length === 0) { setPendingBookings([]); return }
+    const { data } = await supabase.from('bookings')
+      .select('*, teams(name, club, level, formation), activities(type, date, formation, level)')
+      .eq('status', 'pending').in('activity_id', actIds)
+      .order('created_at', { ascending: false })
+    setPendingBookings(data || [])
   }
 
   const handleNotificationClick = async (n: any) => {
@@ -140,8 +153,8 @@ function Home({ session }: { session: any }) {
       {showFindMatch && team && <FindMatch team={team} session={session} onBack={() => setShowFindMatch(false)} />}
       {showIncoming && team && (
         <IncomingRequests team={team}
-          onConfirmed={() => fetchConfirmedMatches()}
-          onBack={() => { setShowIncoming(false); fetchNotifications(); fetchConfirmedMatches() }} />
+          onConfirmed={() => { fetchConfirmedMatches(); fetchPendingBookings() }}
+          onBack={() => { setShowIncoming(false); fetchNotifications(); fetchConfirmedMatches(); fetchPendingBookings() }} />
       )}
       {showMyMatches && team && (
         <MyMatches team={team} session={session} initialTab={showMyMatches}
@@ -223,6 +236,33 @@ function Home({ session }: { session: any }) {
             ))}
           </div>
         </div>
+
+        {pendingBookings.length > 0 && (
+          <div className="px-4 mb-4">
+            <div className="bg-white rounded-xl border border-amber-100 overflow-hidden">
+              <div className="flex items-center gap-2 p-3 border-b border-amber-50">
+                <span>📬</span>
+                <p className="text-sm font-medium text-gray-800">{pendingBookings.length} inkomna intresseanmälningar</p>
+              </div>
+              {pendingBookings.slice(0, 3).map((b: any) => (
+                <div key={b.id} className="flex items-center justify-between p-3 border-b border-gray-50 last:border-0">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{b.teams?.name}{b.teams?.club ? ` · ${b.teams.club}` : ''}</p>
+                    <p className="text-xs text-gray-400">
+                      {b.activities?.type} · {new Date(b.activities?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}
+                      {b.activities?.formation ? ` · ${b.activities.formation}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600 font-medium">Väntar</span>
+                </div>
+              ))}
+              <button onClick={() => setShowIncoming(true)}
+                className="w-full p-3 text-sm text-green-600 font-medium text-center hover:bg-green-50 transition-colors">
+                Hantera anmälningar →
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="px-4 mb-4">
           <div className="flex justify-between items-center mb-3">
@@ -760,8 +800,8 @@ function MyMatches({ team, session, initialTab, onBack }: { team: any, session: 
                       <div onClick={() => setExpandedId(isExpanded ? null : b.id)}
                         className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50">
                         <div>
-                          <p className="text-sm font-medium text-gray-700">{activity?.type}</p>
-                          <p className="text-xs text-gray-400">{activity?.teams?.name} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}</p>
+                          <p className="text-sm font-medium text-gray-700">{activity?.type} · {new Date(activity?.date).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}</p>
+                          <p className="text-xs text-gray-400">{activity?.teams?.name}{activity?.formation ? ` · ${activity.formation}` : ''}{activity?.level ? ` · ${activity.level}` : ''}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600">Väntar</span>
@@ -1284,7 +1324,7 @@ function IncomingRequests({ team, onBack, onConfirmed }: { team: any, onBack: ()
     const { data: myActivities } = await supabase.from('activities').select('id').eq('team_id', team.id)
     const activityIds = myActivities?.map((a: any) => a.id) || []
     if (activityIds.length === 0) { setBookings([]); setLoading(false); return }
-    const { data } = await supabase.from('bookings').select('*, teams(name, age_group, formation, level, owner_id), activities(type, date, time, location, contact_method, contact_phone, contact_email)').eq('status', 'pending').in('activity_id', activityIds).order('created_at', { ascending: false })
+    const { data } = await supabase.from('bookings').select('*, teams(name, club, age_group, formation, level, owner_id), activities(type, date, time, location, formation, level, contact_method, contact_phone, contact_email)').eq('status', 'pending').in('activity_id', activityIds).order('created_at', { ascending: false })
     setBookings(data || [])
     setLoading(false)
   }
@@ -1302,11 +1342,15 @@ function IncomingRequests({ team, onBack, onConfirmed }: { team: any, onBack: ()
         ) : bookings.map(b => (
           <div key={b.id} className="bg-white rounded-xl border border-gray-100 p-4">
             <div className="flex justify-between items-start mb-2">
-              <div><p className="text-sm font-medium text-gray-800">{b.teams?.name}</p><p className="text-xs text-gray-400">{b.teams?.age_group} · {b.teams?.formation}</p></div>
+              <div>
+                <p className="text-sm font-medium text-gray-800">{b.teams?.name}{b.teams?.club ? ` · ${b.teams.club}` : ''}</p>
+                <p className="text-xs text-gray-400">{b.teams?.age_group}{b.teams?.formation ? ` · ${b.teams.formation}` : ''}{b.teams?.level ? ` · ${b.teams.level}` : ''}</p>
+              </div>
               <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600 font-medium">Väntar</span>
             </div>
             <div className="text-xs text-gray-500 mb-3">
-              <p>📅 {b.activities?.type} · {new Date(b.activities?.date).toLocaleDateString('sv-SE')}</p>
+              <p>📅 {b.activities?.type} · {new Date(b.activities?.date).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' })} · {b.activities?.time?.substring(0, 5)}</p>
+              {b.activities?.formation && <p>⚽ {b.activities.formation}{b.activities?.level ? ` · ${b.activities.level}` : ''}</p>}
               <p>📍 {b.activities?.location}</p>
               {b.message && <p className="mt-1 italic">"{b.message}"</p>}
             </div>

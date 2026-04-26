@@ -167,9 +167,17 @@ function CupCard({ cup, onClick }: { cup: any, onClick: () => void }) {
 }
 
 // ─── CupDetail ────────────────────────────────────────────────────────────────
-function CupDetail({ cup, session, onBack, onDeleted }: { cup: any, session: any, onBack: () => void, onDeleted: () => void }) {
+export function CupDetail({ cup: initialCup, session, onBack, onDeleted }: { cup: any, session: any, onBack: () => void, onDeleted: () => void }) {
+  const [cup, setCup] = useState(initialCup)
   const [activeTab, setActiveTab] = useState('info')
   const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    supabase.from('cups').select('*, teams(name)').eq('id', initialCup.id).single().then(({ data }) => {
+      if (data) setCup(data)
+    })
+  }, [initialCup.id])
+
   const isOwner = cup.owner_id === session?.user?.id
 
   const dateFrom = new Date(cup.date_from).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -180,8 +188,8 @@ function CupDetail({ cup, session, onBack, onDeleted }: { cup: any, session: any
     : null
 
   const hasRegButton =
-    (cup.registration_type === 'Extern länk' && cup.registration_url) ||
-    (cup.registration_type === 'Email' && cup.registration_email) ||
+    (cup.registration_type === 'Extern länk' && !!cup.registration_url) ||
+    (cup.registration_type === 'Email' && !!cup.registration_email) ||
     cup.registration_type === 'Kontakta arrangören'
 
   const handleRegister = () => {

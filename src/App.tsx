@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import { useLanguage } from './useLanguage'
-import { CupsView } from './Cups'
+import { CupsView, CupDetail } from './Cups'
 
 function App() {
   const [session, setSession] = useState<any>(null)
@@ -140,6 +140,7 @@ function Home({ session }: { session: any }) {
       {showFindMatch && team && <FindMatch team={team} session={session} onBack={() => setShowFindMatch(false)} />}
       {showIncoming && team && (
         <IncomingRequests team={team}
+          onConfirmed={() => fetchConfirmedMatches()}
           onBack={() => { setShowIncoming(false); fetchNotifications(); fetchConfirmedMatches() }} />
       )}
       {showMyMatches && team && (
@@ -1029,38 +1030,63 @@ function CreateActivity({ team, onCreated, onBack }: { team: any, onCreated: () 
 }
 
 function FindMatch({ team, session, onBack }: { team: any, session: any, onBack: () => void }) {
-  const [activities, setActivities] = useState<any[]>([])
+  const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<Record<string, any[]>>({})
   const [selectedActivity, setSelectedActivity] = useState<any>(null)
+  const [selectedCup, setSelectedCup] = useState<any>(null)
   const [filters, setFilters] = useState({ type: '', formation: '', level: '', kommun: '', dateFrom: '', dateTo: '' })
   const [saveWatch, setSaveWatch] = useState(false)
   const [watchName, setWatchName] = useState('')
   const [watchLevels, setWatchLevels] = useState<string[]>([])
   const stockholmKommuner = ['Botkyrka', 'Danderyd', 'Ekerö', 'Haninge', 'Huddinge', 'Järfälla', 'Lidingö', 'Nacka', 'Norrtälje', 'Nykvarn', 'Nynäshamn', 'Salem', 'Sigtuna', 'Sollentuna', 'Solna', 'Stockholm', 'Sundbyberg', 'Södertälje', 'Tyresö', 'Täby', 'Upplands-Bro', 'Upplands Väsby', 'Vallentuna', 'Vaxholm', 'Värmdö', 'Österåker']
-  useEffect(() => { fetchConfig(); fetchActivities() }, [])
-  useEffect(() => { fetchActivities() }, [filters])
+  useEffect(() => { fetchConfig(); fetchAll() }, [])
+  useEffect(() => { fetchAll() }, [filters])
   const fetchConfig = async () => {
     const { data } = await supabase.from('config').select('*').eq('active', true).order('sort_order')
     if (data) { const grouped = data.reduce((acc: Record<string, any[]>, item) => { if (!acc[item.category]) acc[item.category] = []; acc[item.category].push(item); return acc }, {}); setConfig(grouped) }
   }
-  const fetchActivities = async () => {
+  const fetchAll = async () => {
     setLoading(true)
+    const today = new Date().toISOString().split('T')[0]
+
+    // Activities
     const { data: existingBookings } = await supabase.from('bookings').select('activity_id').eq('team_id', team.id).in('status', ['pending', 'confirmed'])
-    const bookedActivityIds = existingBookings?.map((b: any) => b.activity_id) || []
-    let query = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).gte('date', filters.dateFrom || new Date().toISOString().split('T')[0]).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
-    if (filters.type) query = query.eq('type', filters.type)
-    if (filters.formation) query = query.eq('formation', filters.formation)
-    if (filters.level) query = query.ilike('level', `%${filters.level}%`)
-    if (filters.kommun) query = query.eq('kommun', filters.kommun)
-    const { data } = await query
-    const withStatus = (data || []).map((a: any) => ({ ...a, alreadyApplied: bookedActivityIds.includes(a.id) }))
-    setActivities(withStatus)
+    const bookedIds = existingBookings?.map((b: any) => b.activity_id) || []
+    let actQuery = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).gte('date', filters.dateFrom || today).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
+    if (filters.type) actQuery = actQuery.eq('type', filters.type)
+    if (filters.formation) actQuery = actQuery.eq('formation', filters.formation)
+    if (filters.level) actQuery = actQuery.ilike('level', `%${filters.level}%`)
+    if (filters.kommun) actQuery = actQuery.eq('kommun', filters.kommun)
+    const { data: actData } = await actQuery
+
+    // Cups — skipped when an activity-type filter is active (types are different categories)
+    let cupsData: any[] = []
+    if (!filters.type) {
+      let cupQuery = supabase.from('cups').select('*, teams(name)').eq('status', 'active').gte('date_to', filters.dateFrom || today)
+      if (filters.dateTo) cupQuery = cupQuery.lte('date_from', filters.dateTo)
+      if (filters.formation) cupQuery = cupQuery.contains('formations', [filters.formation])
+      if (filters.level) cupQuery = cupQuery.contains('levels', [filters.level])
+      if (filters.kommun) cupQuery = cupQuery.eq('kommun', filters.kommun)
+      const { data: rawCups } = await cupQuery
+      cupsData = rawCups ?? []
+    }
+
+    const activities = (actData ?? []).map((a: any) => ({ ...a, _type: 'activity', alreadyApplied: bookedIds.includes(a.id) }))
+    const cups = cupsData.map((c: any) => ({ ...c, _type: 'cup' }))
+    const merged = [...activities, ...cups].sort((a, b) => {
+      const da = a._type === 'cup' ? a.date_from : a.date
+      const db = b._type === 'cup' ? b.date_from : b.date
+      return da.localeCompare(db)
+    })
+    setItems(merged)
     setLoading(false)
   }
   const updateFilter = (key: string, value: string) => setFilters(prev => ({ ...prev, [key]: value }))
 
-  if (selectedActivity) return <InterestForm activity={selectedActivity} team={team} onBack={() => setSelectedActivity(null)} onSent={() => { setSelectedActivity(null); fetchActivities() }} />
+  if (selectedCup) return <CupDetail cup={selectedCup} session={session} onBack={() => setSelectedCup(null)} onDeleted={() => setSelectedCup(null)} />
+
+  if (selectedActivity) return <InterestForm activity={selectedActivity} team={team} onBack={() => setSelectedActivity(null)} onSent={() => { setSelectedActivity(null); fetchAll() }} />
 
   if (saveWatch) {
     return (
@@ -1110,14 +1136,16 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
               className="flex-1 border border-gray-200 text-gray-600 py-3 rounded-xl text-sm font-medium">Avbryt</button>
             <button onClick={async () => {
               if (!watchName) { alert('Ange ett namn'); return }
-              await supabase.from('watches').insert({
+              const { error } = await supabase.from('watches').insert({
                 user_id: session.user.id,
+                team_id: team.id,
                 name: watchName,
                 filter_type: filters.type || null,
                 filter_formation: filters.formation || null,
                 filter_levels: watchLevels.length > 0 ? watchLevels.join(', ') : null,
                 filter_kommun: filters.kommun || null,
               })
+              if (error) { alert('Kunde inte spara: ' + error.message); return }
               setSaveWatch(false)
               setWatchName('')
               setWatchLevels([])
@@ -1136,7 +1164,7 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
     <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
       <div className="bg-green-500 p-5 flex items-center gap-3">
         <button onClick={onBack} className="text-white text-xl">←</button>
-        <div><h1 className="text-white text-xl font-medium">Hitta match</h1><p className="text-green-100 text-sm">{activities.length} aktiviteter</p></div>
+        <div><h1 className="text-white text-xl font-medium">Hitta match</h1><p className="text-green-100 text-sm">{items.length} träffar</p></div>
       </div>
       <div className="bg-white border-b border-gray-100 p-3 space-y-2">
         <div className="grid-2">
@@ -1152,13 +1180,32 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
           <div><label className="text-xs text-gray-400 mb-1 block">Till datum</label><input type="date" value={filters.dateTo} onChange={e => updateFilter('dateTo', e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" /></div>
         </div>
         <div className="flex justify-end">
-          <button onClick={() => setSaveWatch(true)} className="text-xs text-green-600 font-medium">🔔 Spara som bevakning</button>
+          <button onClick={() => { setWatchLevels(filters.level ? [filters.level] : []); setSaveWatch(true) }} className="text-xs text-green-600 font-medium">🔔 Spara som bevakning</button>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {loading ? <p className="text-sm text-gray-400 text-center py-8">Laddar...</p> : activities.length === 0 ? (
-          <div className="text-center py-12"><p className="text-2xl mb-2">🔍</p><p className="text-sm font-medium text-gray-600">Inga aktiviteter hittades</p></div>
-        ) : activities.map(a => (
+        {loading ? <p className="text-sm text-gray-400 text-center py-8">Laddar...</p> : items.length === 0 ? (
+          <div className="text-center py-12"><p className="text-2xl mb-2">🔍</p><p className="text-sm font-medium text-gray-600">Inga träffar hittades</p></div>
+        ) : items.map(a => a._type === 'cup' ? (
+          <div key={`cup-${a.id}`} className="bg-white rounded-xl border border-gray-100 overflow-hidden cursor-pointer hover:border-amber-200 transition-colors" onClick={() => setSelectedCup(a)}>
+            {a.image_url && <img src={a.image_url} alt={a.name} style={{ width: '100%', display: 'block', maxHeight: '120px', objectFit: 'cover' }} />}
+            <div className="p-4">
+              <div className="flex justify-between items-start mb-2">
+                <div><p className="text-sm font-medium text-gray-800">{a.name}</p><p className="text-xs text-gray-400">{a.teams?.name}</p></div>
+                <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">🏆 {a.type}</span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs text-gray-500"><span>📅</span><span>{new Date(a.date_from).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}{a.date_from !== a.date_to ? ` – ${new Date(a.date_to).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}` : ''}</span></div>
+                {(a.locations?.length > 0 || a.kommun) && <div className="flex items-center gap-2 text-xs text-gray-500"><span>📍</span><span>{a.locations?.[0]}{a.kommun ? `, ${a.kommun}` : ''}</span></div>}
+                <div className="flex gap-3 text-xs text-gray-500 flex-wrap">
+                  {a.formations?.length > 0 && <span>⚽ {a.formations.join(', ')}</span>}
+                  {a.levels?.length > 0 && <span>📊 {a.levels.join(', ')}</span>}
+                </div>
+                {a.price > 0 && <div className="text-xs text-amber-600">💰 {a.price} kr {a.price_type === 'Per lag' ? '/lag' : '/spelare'}</div>}
+              </div>
+            </div>
+          </div>
+        ) : (
           <div key={a.id} className="bg-white rounded-xl border border-gray-100 p-4">
             <div className="flex justify-between items-start mb-2">
               <div><p className="text-sm font-medium text-gray-800">{a.type}</p><p className="text-xs text-gray-400">{a.teams?.name}</p></div>
@@ -1226,7 +1273,7 @@ function InterestForm({ activity, team, onBack, onSent }: { activity: any, team:
   )
 }
 
-function IncomingRequests({ team, onBack }: { team: any, onBack: () => void }) {
+function IncomingRequests({ team, onBack, onConfirmed }: { team: any, onBack: () => void, onConfirmed?: () => void }) {
   const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedBooking, setSelectedBooking] = useState<any>(null)
@@ -1242,7 +1289,7 @@ function IncomingRequests({ team, onBack }: { team: any, onBack: () => void }) {
     setLoading(false)
   }
   if (showConfirmed) return <ConfirmedScreen booking={showConfirmed} isRequester={false} onBack={onBack} />
-  if (selectedBooking) return <RespondToBooking booking={selectedBooking} team={team} onBack={() => setSelectedBooking(null)} onResponded={(confirmed: any) => { setSelectedBooking(null); if (confirmed) setShowConfirmed(confirmed); else fetchBookings() }} />
+  if (selectedBooking) return <RespondToBooking booking={selectedBooking} team={team} onBack={() => setSelectedBooking(null)} onResponded={(confirmed: any) => { setSelectedBooking(null); if (confirmed) { setShowConfirmed(confirmed); onConfirmed?.() } else fetchBookings() }} />
   return (
     <div className="fixed inset-0 bg-gray-50 max-w-sm mx-auto flex flex-col z-50">
       <div className="bg-green-500 p-5 flex items-center gap-3">

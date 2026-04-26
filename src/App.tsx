@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import { useLanguage } from './useLanguage'
-import { CupsView, CupDetail } from './Cups'
+import { CupsView } from './Cups'
 
 function App() {
   const [session, setSession] = useState<any>(null)
@@ -1074,7 +1074,6 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<Record<string, any[]>>({})
   const [selectedActivity, setSelectedActivity] = useState<any>(null)
-  const [selectedCup, setSelectedCup] = useState<any>(null)
   const [filters, setFilters] = useState({ type: '', formation: '', level: '', kommun: '', dateFrom: '', dateTo: '' })
   const [saveWatch, setSaveWatch] = useState(false)
   const [watchName, setWatchName] = useState('')
@@ -1089,8 +1088,6 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
   const fetchAll = async () => {
     setLoading(true)
     const today = new Date().toISOString().split('T')[0]
-
-    // Activities
     const { data: existingBookings } = await supabase.from('bookings').select('activity_id').eq('team_id', team.id).in('status', ['pending', 'confirmed'])
     const bookedIds = existingBookings?.map((b: any) => b.activity_id) || []
     let actQuery = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).not('type', 'in', '("Cup","Läger","Turnering","Matchcamp")').gte('date', filters.dateFrom || today).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
@@ -1099,32 +1096,10 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
     if (filters.level) actQuery = actQuery.ilike('level', `%${filters.level}%`)
     if (filters.kommun) actQuery = actQuery.eq('kommun', filters.kommun)
     const { data: actData } = await actQuery
-
-    // Cups — skipped when an activity-type filter is active (types are different categories)
-    let cupsData: any[] = []
-    if (!filters.type) {
-      let cupQuery = supabase.from('cups').select('*, teams(name)').eq('status', 'active').gte('date_to', filters.dateFrom || today)
-      if (filters.dateTo) cupQuery = cupQuery.lte('date_from', filters.dateTo)
-      if (filters.formation) cupQuery = cupQuery.contains('formations', [filters.formation])
-      if (filters.level) cupQuery = cupQuery.contains('levels', [filters.level])
-      if (filters.kommun) cupQuery = cupQuery.eq('kommun', filters.kommun)
-      const { data: rawCups } = await cupQuery
-      cupsData = rawCups ?? []
-    }
-
-    const activities = (actData ?? []).map((a: any) => ({ ...a, _type: 'activity', alreadyApplied: bookedIds.includes(a.id) }))
-    const cups = cupsData.map((c: any) => ({ ...c, _type: 'cup' }))
-    const merged = [...activities, ...cups].sort((a, b) => {
-      const da = a._type === 'cup' ? a.date_from : a.date
-      const db = b._type === 'cup' ? b.date_from : b.date
-      return da.localeCompare(db)
-    })
-    setItems(merged)
+    setItems((actData ?? []).map((a: any) => ({ ...a, alreadyApplied: bookedIds.includes(a.id) })))
     setLoading(false)
   }
   const updateFilter = (key: string, value: string) => setFilters(prev => ({ ...prev, [key]: value }))
-
-  if (selectedCup) return <CupDetail cup={selectedCup} session={session} onBack={() => setSelectedCup(null)} onDeleted={() => setSelectedCup(null)} />
 
   if (selectedActivity) return <InterestForm activity={selectedActivity} team={team} onBack={() => setSelectedActivity(null)} onSent={() => { setSelectedActivity(null); fetchAll() }} />
 
@@ -1226,26 +1201,7 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading ? <p className="text-sm text-gray-400 text-center py-8">Laddar...</p> : items.length === 0 ? (
           <div className="text-center py-12"><p className="text-2xl mb-2">🔍</p><p className="text-sm font-medium text-gray-600">Inga träffar hittades</p></div>
-        ) : items.map(a => a._type === 'cup' ? (
-          <div key={`cup-${a.id}`} className="bg-white rounded-xl border border-gray-100 overflow-hidden cursor-pointer hover:border-amber-200 transition-colors" onClick={() => setSelectedCup(a)}>
-            {a.image_url && <img src={a.image_url} alt={a.name} style={{ width: '100%', display: 'block', maxHeight: '120px', objectFit: 'cover' }} />}
-            <div className="p-4">
-              <div className="flex justify-between items-start mb-2">
-                <div><p className="text-sm font-medium text-gray-800">{a.name}</p><p className="text-xs text-gray-400">{a.teams?.name}</p></div>
-                <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">🏆 {a.type}</span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 text-xs text-gray-500"><span>📅</span><span>{new Date(a.date_from).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}{a.date_from !== a.date_to ? ` – ${new Date(a.date_to).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}` : ''}</span></div>
-                {(a.locations?.length > 0 || a.kommun) && <div className="flex items-center gap-2 text-xs text-gray-500"><span>📍</span><span>{a.locations?.[0]}{a.kommun ? `, ${a.kommun}` : ''}</span></div>}
-                <div className="flex gap-3 text-xs text-gray-500 flex-wrap">
-                  {a.formations?.length > 0 && <span>⚽ {a.formations.join(', ')}</span>}
-                  {a.levels?.length > 0 && <span>📊 {a.levels.join(', ')}</span>}
-                </div>
-                {a.price > 0 && <div className="text-xs text-amber-600">💰 {a.price} kr {a.price_type === 'Per lag' ? '/lag' : '/spelare'}</div>}
-              </div>
-            </div>
-          </div>
-        ) : (
+        ) : items.map(a => (
           <div key={a.id} className="bg-white rounded-xl border border-gray-100 p-4">
             <div className="flex justify-between items-start mb-2">
               <div><p className="text-sm font-medium text-gray-800">{a.type}</p><p className="text-xs text-gray-400">{a.teams?.name}</p></div>

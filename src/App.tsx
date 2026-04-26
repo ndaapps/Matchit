@@ -1028,7 +1028,7 @@ function CreateActivity({ team, onCreated, onBack }: { team: any, onCreated: () 
         <div><h1 className="text-white text-xl font-medium">Lägg upp aktivitet</h1><p className="text-green-100 text-sm">{team?.name}</p></div>
       </div>
       <div className="flex-1 p-4 space-y-4 overflow-y-auto pb-24">
-        <div><label className="text-sm text-gray-500 mb-1 block">Typ av aktivitet *</label><select value={form.type} onChange={e => update('type', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"><option value="">Välj typ</option>{(config.activity_type || []).filter((c: any) => c.label !== 'Cup' && c.label !== 'Läger').map((c: any) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+        <div><label className="text-sm text-gray-500 mb-1 block">Typ av aktivitet *</label><select value={form.type} onChange={e => update('type', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"><option value="">Välj typ</option>{(config.activity_type || []).filter((c: any) => !['Cup','Läger','Turnering','Matchcamp'].includes(c.label)).map((c: any) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
         <div><label className="text-sm text-gray-500 mb-1 block">Datum *</label><input type="date" value={form.date} onChange={e => update('date', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" /></div>
         <div><label className="text-sm text-gray-500 mb-1 block">Tid *</label>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1093,7 +1093,7 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
     // Activities
     const { data: existingBookings } = await supabase.from('bookings').select('activity_id').eq('team_id', team.id).in('status', ['pending', 'confirmed'])
     const bookedIds = existingBookings?.map((b: any) => b.activity_id) || []
-    let actQuery = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).neq('type', 'Cup').neq('type', 'Läger').gte('date', filters.dateFrom || today).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
+    let actQuery = supabase.from('activities').select('*, teams(name, club, owner_id)').eq('status', 'open').neq('team_id', team.id).not('type', 'in', '("Cup","Läger","Turnering","Matchcamp")').gte('date', filters.dateFrom || today).lte('date', filters.dateTo || '2099-12-31').order('date', { ascending: true })
     if (filters.type) actQuery = actQuery.eq('type', filters.type)
     if (filters.formation) actQuery = actQuery.eq('formation', filters.formation)
     if (filters.level) actQuery = actQuery.ilike('level', `%${filters.level}%`)
@@ -1208,7 +1208,7 @@ function FindMatch({ team, session, onBack }: { team: any, session: any, onBack:
       </div>
       <div className="bg-white border-b border-gray-100 p-3 space-y-2">
         <div className="grid-2">
-          <select value={filters.type} onChange={e => updateFilter('type', e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"><option value="">Alla typer</option>{(config.activity_type || []).filter((c: any) => c.label !== 'Cup' && c.label !== 'Läger').map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}</select>
+          <select value={filters.type} onChange={e => updateFilter('type', e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"><option value="">Alla typer</option>{(config.activity_type || []).filter((c: any) => !['Cup','Läger','Turnering','Matchcamp'].includes(c.label)).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}</select>
           <select value={filters.formation} onChange={e => updateFilter('formation', e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400 bg-white"><option value="">Alla uppställningar</option>{(config.formation || []).map((c: any) => <option key={c.value} value={c.label}>{c.label}</option>)}</select>
         </div>
         <div className="grid-2">

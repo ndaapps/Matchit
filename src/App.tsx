@@ -70,6 +70,7 @@ function Login() {
 function Home({ session }: { session: any }) {
   const t = useLanguage()
   const [team, setTeam] = useState<any>(null)
+  const [teamLoaded, setTeamLoaded] = useState(false)
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [confirmedMatches, setConfirmedMatches] = useState<any[]>([])
@@ -93,6 +94,7 @@ function Home({ session }: { session: any }) {
   const fetchTeam = async () => {
     const { data } = await supabase.from('teams').select('*').eq('owner_id', session.user.id).single()
     setTeam(data)
+    setTeamLoaded(true)
   }
 
   const fetchNotifications = async () => {
@@ -128,7 +130,7 @@ function Home({ session }: { session: any }) {
     setNotifications(prev => prev.filter(x => x.id !== n.id))
     setUnreadCount(prev => Math.max(0, prev - 1))
     setShowNotifications(false)
-    if (n.type === 'interest') setShowIncoming(true)
+    if (n.type === 'interest') { setShowIncoming(true); return }
     if (n.type === 'accepted') {
       const { data } = await supabase.from('bookings')
         .select('*, activities(*, teams(name)), teams(name)')
@@ -143,6 +145,25 @@ function Home({ session }: { session: any }) {
   }
 
   const handleSignOut = async () => { await supabase.auth.signOut() }
+
+  if (teamLoaded && !team) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gray-50">
+        {showCreateTeam && <CreateTeam session={session} onCreated={() => { setShowCreateTeam(false); fetchTeam() }} />}
+        <div className="text-center">
+          <div className="w-16 h-16 bg-green-500 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <span className="text-white text-2xl font-bold">K</span>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Kickly</h1>
+          <p className="text-gray-500 text-sm mb-8 max-w-xs">Välkommen till Kickly! Skapa ditt lag för att komma igång.</p>
+          <button onClick={() => setShowCreateTeam(true)}
+            className="bg-green-500 text-white px-8 py-4 rounded-2xl text-base font-semibold hover:bg-green-600 transition-colors w-full max-w-xs">
+            Skapa lag
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-sm mx-auto min-h-screen flex flex-col relative">

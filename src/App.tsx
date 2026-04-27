@@ -17,51 +17,103 @@ function App() {
 }
 
 function Login() {
-  const t = useLanguage()
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
-  const handleLogin = async () => {
+  const [error, setError] = useState('')
+
+  const switchMode = (next: 'login' | 'signup') => {
+    setMode(next)
+    setError('')
+    setPassword('')
+    setConfirmPassword('')
+  }
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setMessage(error.message)
+    if (error) setError('Fel email eller lösenord.')
     setLoading(false)
   }
-  const handleSignup = async () => {
-    if (!email || !password) { setMessage('Ange email och lösenord'); return }
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (password !== confirmPassword) { setError('Lösenorden matchar inte.'); return }
+    if (password.length < 6) { setError('Lösenordet måste vara minst 6 tecken.'); return }
     setLoading(true)
     const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) setMessage(error.message)
-    else if (!data.session) setMessage(t.auth.checkEmail)
+    if (error) {
+      if (error.message.toLowerCase().includes('already')) setError('Det finns redan ett konto med den emailadressen.')
+      else setError(error.message)
+    } else if (!data.session) {
+      setError('Kolla din email för att bekräfta kontot.')
+    }
     // if data.session exists, onAuthStateChange fires and logs the user in automatically
     setLoading(false)
   }
+
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-8 w-full max-w-sm border border-gray-100">
-        <div className="mb-8">
-          <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center mb-4">
-            <span className="text-white text-xl">⚽</span>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
+      <div className="bg-white rounded-2xl p-8 w-full max-w-sm border border-gray-100 shadow-sm">
+        <div className="mb-8 text-center">
+          <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-white text-lg font-bold">K</span>
           </div>
-          <h1 className="text-2xl font-medium text-gray-900">Matchit</h1>
-          <p className="text-gray-500 text-sm mt-1">{t.auth.tagline}</p>
+          <h1 className="text-2xl font-semibold text-gray-900">
+            {mode === 'login' ? 'Välkommen tillbaka' : 'Skapa konto'}
+          </h1>
+          {mode === 'signup' && (
+            <p className="text-gray-400 text-xs mt-1">Gratis under beta · Ingen bindningstid</p>
+          )}
         </div>
-        <div className="space-y-3">
-          <input type="email" placeholder={t.auth.email} value={email} onChange={e => setEmail(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
-          <input type="password" placeholder={t.auth.password} value={password} onChange={e => setPassword(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
-          {message && <p className="text-sm text-green-600">{message}</p>}
-          <button onClick={handleLogin} disabled={loading}
-            className="w-full bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors">
-            {loading ? t.common.loading : t.auth.login}
-          </button>
-          <button onClick={handleSignup} disabled={loading}
-            className="w-full border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
-            {t.auth.signup}
-          </button>
-        </div>
+
+        {mode === 'login' ? (
+          <form onSubmit={handleLogin} className="space-y-3">
+            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+            <input type="password" placeholder="Lösenord" value={password} onChange={e => setPassword(e.target.value)} required
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <button type="submit" disabled={loading}
+              className="w-full bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors disabled:opacity-60">
+              {loading ? 'Loggar in...' : 'Logga in'}
+            </button>
+            <p className="text-center text-sm text-gray-400 pt-1">
+              Inget konto?{' '}
+              <button type="button" onClick={() => switchMode('signup')} className="text-green-600 font-medium hover:underline">
+                Skapa ett här →
+              </button>
+            </p>
+          </form>
+        ) : (
+          <form onSubmit={handleSignup} className="space-y-3">
+            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+            <div>
+              <input type="password" placeholder="Lösenord" value={password} onChange={e => setPassword(e.target.value)} required minLength={6}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+              <p className="text-xs text-gray-400 mt-1 ml-1">Minst 6 tecken</p>
+            </div>
+            <input type="password" placeholder="Bekräfta lösenord" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-green-400" />
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <button type="submit" disabled={loading}
+              className="w-full bg-green-500 text-white py-3 rounded-xl text-sm font-medium hover:bg-green-600 transition-colors disabled:opacity-60">
+              {loading ? 'Skapar konto...' : 'Skapa konto'}
+            </button>
+            <p className="text-center text-sm text-gray-400 pt-1">
+              Har du redan ett konto?{' '}
+              <button type="button" onClick={() => switchMode('login')} className="text-green-600 font-medium hover:underline">
+                Logga in →
+              </button>
+            </p>
+          </form>
+        )}
       </div>
     </div>
   )

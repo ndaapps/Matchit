@@ -320,7 +320,8 @@ function Home({ session }: { session: any }) {
                 <p className="text-sm font-medium text-gray-800">{pendingBookings.length} inkomna intresseanmälningar</p>
               </div>
               {pendingBookings.slice(0, 3).map((b: any) => (
-                <div key={b.id} className="flex items-center justify-between p-3 border-b border-gray-50 last:border-0">
+                <div key={b.id} onClick={() => setShowIncoming(true)}
+                  className="flex items-center justify-between p-3 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-amber-50 transition-colors">
                   <div>
                     <p className="text-sm font-medium text-gray-800">{b.teams?.name}{b.teams?.club ? ` · ${b.teams.club}` : ''}</p>
                     <p className="text-xs text-gray-400">
